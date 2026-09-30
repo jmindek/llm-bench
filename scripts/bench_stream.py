@@ -60,10 +60,10 @@ def count_tokens(text):
     return max(1, len(text) // 4)
 
 
-def build_request_body(prompt):
+def build_request_body(model, prompt):
     """Build the JSON request body for a streaming request."""
     return json.dumps({
-        "model": MODEL,
+        "model": model,
         "messages": [{"role": "user", "content": prompt}],
         "max_tokens": 400,
         "temperature": 0,
@@ -72,18 +72,18 @@ def build_request_body(prompt):
     }).encode()
 
 
-def build_headers():
+def build_headers(api_key):
     """Build request headers with optional auth."""
     headers = {"Content-Type": "application/json"}
-    if API_KEY:
-        headers["Authorization"] = f"Bearer {API_KEY}"
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
     return headers
 
 
-def stream_once(max_tokens):
+def stream_once(max_tokens, url, model, api_key):
     """Stream a single request. Returns (ttft, decoded_tokens, total_time, first_delta, last_delta)."""
     prompt = random_prompt()
-    req = urllib.request.Request(URL, data=build_request_body(prompt), headers=build_headers())
+    req = urllib.request.Request(url, data=build_request_body(model, prompt), headers=build_headers(api_key))
     start = time.perf_counter()
     ct_usage = 0
     ct_delta = 0
@@ -130,17 +130,17 @@ def calc_tps(n, dec):
     return n / dec if dec > 0 else float("nan")
 
 
-def run_warmup():
+def run_warmup(url, model, api_key):
     """Run 3 warmup requests to cold-load the model."""
     for _ in range(3):
-        stream_once(8)
+        stream_once(8, url, model, api_key)
 
 
-def measure_warm_ttft():
+def measure_warm_ttft(url, model, api_key):
     """Run 3 short requests and return mean TTFT."""
     ttfts = []
     for _ in range(3):
-        t, _, _, _, _ = stream_once(32)
+        t, _, _, _, _ = stream_once(32, url, model, api_key)
         if t is not None:
             ttfts.append(t)
     return sum(ttfts) / len(ttfts) if ttfts else 0.0
@@ -149,10 +149,10 @@ def measure_warm_ttft():
 def main():
     """Run the full benchmark and print results."""
     URL, MODEL, API_KEY, N_DECODE = parse_args()
-    run_warmup()
-    ttft_mean = measure_warm_ttft()
+    run_warmup(URL, MODEL, API_KEY)
+    ttft_mean = measure_warm_ttft(URL, MODEL, API_KEY)
 
-    ttft, n, total, first_delta, last_delta = stream_once(N_DECODE)
+    ttft, n, total, first_delta, last_delta = stream_once(N_DECODE, URL, MODEL, API_KEY)
     if last_delta and first_delta is not None:
         dec = last_delta - first_delta
     else:

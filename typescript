@@ -40,6 +40,22 @@ LOADED NVM from  /Users/jerrymindek/.nvm
 ]2;uv run python3 bench_pptg.py http://localhost:8000/v1/chat/completions   1600]1;uvpp=3560 tok/s tg=107 tok/s prompt_tokens=5356 completion_tokens=400 total=5.24s
 [1m[7m%[27m[1m[0m                                                                                       ]2;jerrymindek@Jerry--MacBook-Pro:~/Documents/coding/llm-bench/scripts]1;..bench/scripts]7;file://Jerry--MacBook-Pro.local/Users/jerrymindek/Documents/coding/llm-bench/scripts\[0m[27m[24m[J[01;32m➜ [01;32m [36mscripts [01;34mgit:([31mfix/bench-stream-timing[34m) [00m[01;34m[00m[K[?1h=[?2004huv run python3 bench_pptg.py http://localhost:8000/v1/chat/completions openai/Qwen3.6-35B-A3B-oQ4e-mtp sk-555-omlx 16000[K[A[12Dstre[@[@am[18Cst[@[@:8[68C40[P[P[12C[K[11D[A[33Dpi[K[1B[K[A[43Cuv run python3 bench_stream.py http://localhost:8000/v1/chat/completions openai/Qwen3.6-35B-A3B-oQ4e-mtp sk-555-omlx 400[K[?1l>[?2004l
 ]2;uv run python3 bench_stream.py http://localhost:8000/v1/chat/completions   40]1;uvwarm_ttft=0.254s tps=118.5 tokens=400 total=3.63s
-[1m[7m%[27m[1m[0m                                                                                       ]2;jerrymindek@Jerry--MacBook-Pro:~/Documents/coding/llm-bench/scripts]1;..bench/scripts]7;file://Jerry--MacBook-Pro.local/Users/jerrymindek/Documents/coding/llm-bench/scripts\[0m[27m[24m[J[01;32m➜ [01;32m [36mscripts [01;34mgit:([31mfix/bench-stream-timing[34m) [00m[01;34m[00m[K[?1h=[?2004h3B-oQ4e-mtp sk-555-omlx 400[K[?1l>[?2004l
-]2;uv run python3 bench_stream.py http://localhost:8000/v1/chat/completions   40]1;uvwarm_ttft=0.254s tps=118.5 tokens=400 total=3.63s
-[1m[7m%[27m[1m[0m                                                                                       ]2;jerrymindek@Jerry--MacBook-Pro:~/Documents/coding/llm-bench/scripts]1;..bench/scripts]7;file://Jerry--MacBook-Pro.local/Users/jerrymindek/Documents/coding/llm-bench/scripts\[0m[27m[24m[J[01;32m➜ [01;32m [36mscripts [01;34mgit:([31mfix/bench-stream-timing[34m) [00m[01;34m[00m[K[?1h=[?2004h
+[1m[7m%[27m[1m[0m                                                                                       ]2;jerrymindek@Jerry--MacBook-Pro:~/Documents/coding/llm-bench/scripts]1;..bench/scripts]7;file://Jerry--MacBook-Pro.local/Users/jerrymindek/Documents/coding/llm-bench/scripts\[0m[27m[24m[J[01;32m➜ [01;32m [36mscripts [01;34mgit:([31mfix/bench-stream-timing[34m) [00m[01;34m[00m[K[?1h=[?2004huv run python3 bench_stream.py http://localhost:8000/v1/chat/completions openai/Qwen3.6-35B-A3B-oQ4e-mtp sk-555-omlx 400[K[?1l>[?2004l
+]2;uv run python3 bench_stream.py http://localhost:8000/v1/chat/completions   40]1;uvTraceback (most recent call last):
+  File [35m"/Users/jerrymindek/Documents/coding/llm-bench/scripts/bench_stream.py"[0m, line [35m166[0m, in [35m<module>[0m
+    [31mmain[0m[1;31m()[0m
+    [31m~~~~[0m[1;31m^^[0m
+  File [35m"/Users/jerrymindek/Documents/coding/llm-bench/scripts/bench_stream.py"[0m, line [35m152[0m, in [35mmain[0m
+    [31mrun_warmup[0m[1;31m()[0m
+    [31m~~~~~~~~~~[0m[1;31m^^[0m
+  File [35m"/Users/jerrymindek/Documents/coding/llm-bench/scripts/bench_stream.py"[0m, line [35m136[0m, in [35mrun_warmup[0m
+    [31mstream_once[0m[1;31m(8)[0m
+    [31m~~~~~~~~~~~[0m[1;31m^^^[0m
+  File [35m"/Users/jerrymindek/Documents/coding/llm-bench/scripts/bench_stream.py"[0m, line [35m86[0m, in [35mstream_once[0m
+    req = urllib.request.Request([1;31mURL[0m, data=build_request_body(prompt), headers=build_headers())
+                                 [1;31m^^^[0m
+[1;35mNameError[0m: [35mname 'URL' is not defined[0m
+[1m[7m%[27m[1m[0m                                                                                       ]2;jerrymindek@Jerry--MacBook-Pro:~/Documents/coding/llm-bench/scripts]1;..bench/scripts]7;file://Jerry--MacBook-Pro.local/Users/jerrymindek/Documents/coding/llm-bench/scripts\[0m[27m[24m[J[01;31m➜ [27m[01;32m [36mscripts [01;34mgit:([31mfix/bench-stream-timing[34m) [00m[01;34m[00m[K[?1h=[?2004h([1;31mURL[0m, data=build_request_body(prompt), headers=build_headers())
+                                 [1;31m^^^[0m
+[1;35mNameError[0m: [35mname 'URL' is not defined[0m
+[1m[7m%[27m[1m[0m                                                                                       ]2;jerrymindek@Jerry--MacBook-Pro:~/Documents/coding/llm-bench/scripts]1;..bench/scripts]7;file://Jerry--MacBook-Pro.local/Users/jerrymindek/Documents/coding/llm-bench/scripts\[0m[27m[24m[J[01;31m➜ [27m[01;32m [36mscripts [01;34mgit:([31mfix/bench-stream-timing[34m) [00m[01;34m[00m[K[?1h=[?2004h

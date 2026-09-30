@@ -45,10 +45,10 @@ def count_tokens(text):
     return max(1, len(text) // 4)
 
 
-def build_request_body(prompt):
+def build_request_body(model, prompt):
     """Build the JSON request body for a streaming request."""
     return json.dumps({
-        "model": MODEL,
+        "model": model,
         "messages": [{"role": "user", "content": prompt}],
         "max_tokens": 400,
         "temperature": 0,
@@ -57,18 +57,18 @@ def build_request_body(prompt):
     }).encode()
 
 
-def build_headers():
+def build_headers(api_key):
     """Build request headers with optional auth."""
     headers = {"Content-Type": "application/json"}
-    if API_KEY:
-        headers["Authorization"] = f"Bearer {API_KEY}"
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
     return headers
 
 
-def stream_once(prompt, max_tokens):
+def stream_once(prompt, max_tokens, url, model, api_key):
     """Stream a single request. Returns (ttft, prompt_tokens, completion_tokens,
     total_time, first_delta, last_delta)."""
-    req = urllib.request.Request(URL, data=build_request_body(prompt), headers=build_headers())
+    req = urllib.request.Request(url, data=build_request_body(model, prompt), headers=build_headers(api_key))
     start = time.perf_counter()
     pt_usage = 0
     ct_usage = 0
@@ -133,7 +133,7 @@ def main():
     """Run the benchmark and print results."""
     URL, MODEL, API_KEY, CTX = parse_args()
     prompt = build_prompt(CTX)
-    ttft, pt, ct, total, first_delta, last_delta = stream_once(prompt, 400)
+    ttft, pt, ct, total, first_delta, last_delta = stream_once(prompt, 400, URL, MODEL, API_KEY)
     pp, tg, dec = calc_rates(ttft, pt, ct, first_delta, last_delta, total)
 
     print(f"pp={pp:.0f} tok/s tg={tg:.0f} tok/s prompt_tokens={pt} completion_tokens={ct} total={total:.2f}s")
