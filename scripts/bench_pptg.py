@@ -117,7 +117,7 @@ def stream_once(prompt, max_tokens):
     return ttft, pt, ct, total, first_delta, last_delta
 
 
-def calc_rates(ttft, pt, first_delta, last_delta, total):
+def calc_rates(ttft, pt, ct, first_delta, last_delta, total):
     """Calculate prefill and generation throughput rates.
     
     Returns (pp, tg, decode_time).
@@ -135,7 +135,7 @@ def main():
     """Run the benchmark and print results."""
     prompt = build_prompt(CTX)
     ttft, pt, ct, total, first_delta, last_delta = stream_once(prompt, 400)
-    pp, tg, dec = calc_rates(ttft, pt, first_delta, last_delta, total)
+    pp, tg, dec = calc_rates(ttft, pt, ct, first_delta, last_delta, total)
 
     print(f"pp={pp:.0f} tok/s tg={tg:.0f} tok/s prompt_tokens={pt} completion_tokens={ct} total={total:.2f}s")
 
