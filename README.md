@@ -29,6 +29,20 @@ Measures prefill (pp) and generation (tg) rates at a given context length. Uses 
 python3 scripts/bench_pptg.py <URL> <MODEL> <API_KEY> <CTX_TOKENS>
 ```
 
+### `extract_pipeline_metrics.py` — pipeline benchmark extractor
+
+Extracts per-agent token usage from pi session JSONL files and TTFT/tps from LiteLLM spend DB. Writes a CSV row to `benchmarks.csv`.
+
+```bash
+python3 scripts/extract_pipeline_metrics.py sessions/<session-id>.jsonl \
+  --start "<UTC start>" --end "<UTC end>" \
+  --out benchmarks.csv \
+  --agents py-senior-dev,py-lead,py-staff-dev,py-architect \
+  --env ~/llm_platform/.env
+```
+
+Requires `psql` in PATH and a LiteLLM Postgres spend DB.
+
 ## Key Metrics
 
 | Term | Meaning |
