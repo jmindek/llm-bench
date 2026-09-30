@@ -25,6 +25,7 @@ import datetime as dt
 import glob
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -70,30 +71,32 @@ def load_env(env_path=None):
 
 
 def pg_connect(env):
-    """Build psql argv + env from .env values (fallback: defaults for litellm stack)."""
+    """Build psql argv + env from .env values. Fails if credentials are missing."""
     psql = shutil.which("psql")
     if not psql:
         print("ERROR: psql not found in PATH. Install postgres client.", file=sys.stderr)
         sys.exit(1)
-    env_vals = {
-        "user": env.get("POSTGRES_USER", "litellm_user"),
-        "password": env.get("POSTGRES_PASSWORD", "secure_password_change_me"),
-        "db": env.get("POSTGRES_DB", "litellm_db"),
-        "port": "5433",  # local docker-exposed port; .env DATABASE_URL points at the internal docker network
-    }
+    user = env.get("POSTGRES_USER")
+    password = env.get("POSTGRES_PASSWORD")
+    db = env.get("POSTGRES_DB")
+    port = env.get("DATABASE_PORT", "5433")
+    if not all([user, password, db]):
+        missing = [k for k in ("POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DB") if k not in env]
+        print(f"ERROR: Missing .env keys: {', '.join(missing)}", file=sys.stderr)
+        sys.exit(1)
     if "DATABASE_URL" in env and "@" in env["DATABASE_URL"]:
         # postgresql://user:pass@host:port/db
         auth, rest = env["DATABASE_URL"].split("://", 1)[1].split("@", 1)
         if ":" in auth:
-            env_vals["user"], env_vals["password"] = auth.split(":", 1)
+            user, password = auth.split(":", 1)
         host, _, db_port = rest.rpartition("/")
-        env_vals["db"] = db_port
+        db = db_port
         if ":" in host:
             candidate = host.rsplit(":", 1)[-1]
             if candidate != "5432":  # 5432 = docker-internal, not locally reachable
-                env_vals["port"] = candidate
-    argv = [psql, "-h", "127.0.0.1", "-p", env_vals["port"], "-U", env_vals["user"], "-d", env_vals["db"]]
-    pgenv = {"PGPASSWORD": env_vals["password"], "PATH": os.environ.get("PATH", "")}
+                port = candidate
+    argv = [psql, "-h", "127.0.0.1", "-p", port, "-U", user, "-d", db]
+    pgenv = {"PGPASSWORD": password, "PATH": os.environ.get("PATH", "")}
     return argv, pgenv
 
 
@@ -136,18 +139,28 @@ def sum_usage(usages):
 
 
 def agent_models_of(records):
-    models = {r["model"] for r in records if isinstance(r, dict) and r.get("model")}
-    return next(iter(models), "") if models else ""
+    """Return sorted list of unique models used by an agent."""
+    models = sorted({r["model"] for r in records if isinstance(r, dict) and r.get("model")})
+    return models if models else []
 
 
 def spend_rows(start_iso, end_iso, pg_argv, pg_env):
+    # Validate ISO datetime strings to prevent SQL injection
+    iso_re = r'^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}'
+    if not (re.match(iso_re, start_iso) and re.match(iso_re, end_iso)):
+        print(f"WARNING: Invalid time range ({start_iso}, {end_iso}), skipping spend query", file=sys.stderr)
+        return []
     sql = (
         'SELECT "request_id", "model", extract(epoch from "startTime")::float, '
         'extract(epoch from "completionStartTime")::float, "request_duration_ms", '
         '"prompt_tokens", "completion_tokens" FROM "LiteLLM_SpendLogs" '
         f"WHERE \"startTime\" >= '{start_iso}' AND \"startTime\" <= '{end_iso}' ORDER BY \"startTime\""
     )
-    r = subprocess.run(pg_argv + ["-t", "-c", sql], capture_output=True, text=True, env=pg_env)
+    r = subprocess.run(pg_argv + ["--no-align", "--tuples-only", "-c", sql],
+                       capture_output=True, text=True, env=pg_env)
+    if r.returncode != 0:
+        print(f"WARNING: psql query failed: {r.stderr.strip()}", file=sys.stderr)
+        return []
     rows = []
     for line in r.stdout.splitlines():
         p = [x.strip() for x in line.split("|")]
@@ -164,13 +177,12 @@ def ttft_metrics(rows, ids):
     valid = [r for r in rows if r["rid"] in ids and r["cstart"] and r["cstart"] > r["start"]]
     if not valid:
         return {"ttft_s": "", "ptps": "", "gtps": ""}
-    sum_ttft = sum(r["cstart"] - r["start"] for r in valid)
     prefill_s = sum(r["cstart"] - r["start"] for r in valid)
     gen_s = sum((r["dur"] / 1000 - (r["cstart"] - r["start"])) for r in valid
                 if (r["dur"] / 1000 - (r["cstart"] - r["start"])) > 0)
     ptps = (sum(r["pt"] for r in valid) / prefill_s) if prefill_s else ""
     gtps = (sum(r["ct"] for r in valid) / gen_s) if gen_s else ""
-    return {"ttft_s": round(sum_ttft, 3), "ptps": round(ptps, 1) if ptps != "" else "",
+    return {"ttft_s": round(prefill_s, 3), "ptps": round(ptps, 1) if ptps != "" else "",
             "gtps": round(gtps, 2) if gtps != "" else ""}
 
 
@@ -226,6 +238,9 @@ def main():
             return dt.datetime.fromisoformat(s).replace(tzinfo=dt.timezone.utc)
 
     start_dt, end_dt = parse(args.start), parse(args.end)
+    if start_dt > end_dt:
+        print(f"ERROR: start ({args.start}) is after end ({args.end})", file=sys.stderr)
+        sys.exit(1)
     start_epoch, end_epoch = start_dt.timestamp(), end_dt.timestamp()
     sub_dir = args.subagent_dir or os.path.dirname(args.orch_session)
 
@@ -279,7 +294,7 @@ def main():
     agent_ttft_all = {**{"orchestrator": orch_ttft}, **agent_ttft}
     token_cols = ("input", "output", "cacheRead", "cacheWrite", "reasoning", "totalTokens")
     for a in ["orchestrator"] + agents:
-        row[f"{a}_model"] = orch_model if a == "orchestrator" else agent_models[a]
+        row[f"{a}_model"] = orch_model if a == "orchestrator" else ";".join(agent_models[a])
         totals = orch_usage if a == "orchestrator" else agent_totals[a]
         for col in token_cols:
             row[f"{a}_{col}"] = totals[col]
