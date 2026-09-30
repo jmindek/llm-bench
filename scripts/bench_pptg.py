@@ -47,25 +47,31 @@ def count_tokens(text):
     return max(1, len(text) // 4)
 
 
-def stream_once(prompt, max_tokens):
-    """Stream a single request. Returns (ttft, prompt_tokens, completion_tokens,
-    total_time, first_delta, last_delta)."""
-    body = json.dumps({
+def build_request_body(prompt):
+    """Build the JSON request body for a streaming request."""
+    return json.dumps({
         "model": MODEL,
         "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": max_tokens,
+        "max_tokens": 400,
         "temperature": 0,
         "stream": True,
         "stream_options": {"include_usage": True},
     }).encode()
 
+
+def build_headers():
+    """Build request headers with optional auth."""
     headers = {"Content-Type": "application/json"}
     if API_KEY:
         headers["Authorization"] = f"Bearer {API_KEY}"
+    return headers
 
-    req = urllib.request.Request(URL, data=body, headers=headers)
+
+def stream_once(prompt, max_tokens):
+    """Stream a single request. Returns (ttft, prompt_tokens, completion_tokens,
+    total_time, first_delta, last_delta)."""
+    req = urllib.request.Request(URL, data=build_request_body(prompt), headers=build_headers())
     start = time.perf_counter()
-    ttft = None
     pt_usage = 0
     ct_usage = 0
     ct_delta = 0
@@ -106,24 +112,33 @@ def stream_once(prompt, max_tokens):
 
     ttft = first_delta - start if first_delta else None
     total = time.perf_counter() - start
-
-    # Prefer usage counts; ct falls back to delta count
-    # pt: use CTX as estimate when usage chunk is missing
     ct = ct_usage if ct_usage > 0 else ct_delta
     pt = pt_usage if pt_usage > 0 else CTX
     return ttft, pt, ct, total, first_delta, last_delta
 
 
-# Cold run: fresh prompt to defeat prefix cache
-prompt = build_prompt(CTX)
-ttft, pt, ct, total, first_delta, last_delta = stream_once(prompt, 400)
+def calc_rates(ttft, pt, first_delta, last_delta, total):
+    """Calculate prefill and generation throughput rates.
+    
+    Returns (pp, tg, decode_time).
+    """
+    pp = pt / ttft if ttft and ttft > 0 else 0.0
+    if last_delta and first_delta is not None:
+        dec = last_delta - first_delta
+    else:
+        dec = total - (ttft or 0)
+    tg = ct / dec if dec > 0 else 0.0
+    return pp, tg, dec
 
-# Calculate rates
-pp = pt / ttft if ttft and ttft > 0 else 0
-if last_delta and first_delta is not None:
-    dec = last_delta - first_delta
-else:
-    dec = total - (ttft or 0)
-tg = ct / dec if dec > 0 else 0
 
-print(f"pp={pp:.0f} tok/s tg={tg:.0f} tok/s prompt_tokens={pt} completion_tokens={ct} total={total:.2f}s")
+def main():
+    """Run the benchmark and print results."""
+    prompt = build_prompt(CTX)
+    ttft, pt, ct, total, first_delta, last_delta = stream_once(prompt, 400)
+    pp, tg, dec = calc_rates(ttft, pt, first_delta, last_delta, total)
+
+    print(f"pp={pp:.0f} tok/s tg={tg:.0f} tok/s prompt_tokens={pt} completion_tokens={ct} total={total:.2f}s")
+
+
+if __name__ == "__main__":
+    main()

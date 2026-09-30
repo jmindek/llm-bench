@@ -54,25 +54,31 @@ def count_tokens(text):
     return max(1, len(text) // 4)
 
 
-def stream_once(max_tokens):
-    """Stream a single request. Returns (ttft, decoded_tokens, total_time)."""
-    prompt = random_prompt()
-    body = json.dumps({
+def build_request_body(prompt):
+    """Build the JSON request body for a streaming request."""
+    return json.dumps({
         "model": MODEL,
         "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": max_tokens,
+        "max_tokens": 400,
         "temperature": 0,
         "stream": True,
         "stream_options": {"include_usage": True},
     }).encode()
 
+
+def build_headers():
+    """Build request headers with optional auth."""
     headers = {"Content-Type": "application/json"}
     if API_KEY:
         headers["Authorization"] = f"Bearer {API_KEY}"
+    return headers
 
-    req = urllib.request.Request(URL, data=body, headers=headers)
+
+def stream_once(max_tokens):
+    """Stream a single request. Returns (ttft, decoded_tokens, total_time, first_delta, last_delta)."""
+    prompt = random_prompt()
+    req = urllib.request.Request(URL, data=build_request_body(prompt), headers=build_headers())
     start = time.perf_counter()
-    ttft = None
     ct_usage = 0
     ct_delta = 0
     first_delta = None
@@ -109,26 +115,42 @@ def stream_once(max_tokens):
 
     ttft = first_delta - start if first_delta else None
     total = time.perf_counter() - start
-
-    # Prefer usage count; fall back to delta count
     ct = ct_usage if ct_usage > 0 else ct_delta
     return ttft, ct, total, first_delta, last_delta
 
 
-# Warmup: cold load + verify model responds
-for _ in range(3):
-    stream_once(8)
+def calc_tps(n, dec):
+    """Calculate tokens-per-second, returning NaN if decode time is invalid."""
+    return n / dec if dec > 0 else float("nan")
 
-# Warm TTFT: 3 short requests with unique prompts, take mean
-ttfts = [stream_once(32)[0] for _ in range(3)]
-ttft_mean = sum(t for t in ttfts if t is not None) / max(1, sum(1 for t in ttfts if t is not None))
 
-# Sustained decode: single request
-ttft, n, total, first_delta, last_delta = stream_once(N_DECODE)
-if last_delta and first_delta is not None:
-    dec = last_delta - first_delta
-else:
-    dec = total - (ttft or 0)
-tps = n / dec if dec > 0 else float("nan")
+def run_warmup():
+    """Run 3 warmup requests to cold-load the model."""
+    for _ in range(3):
+        stream_once(8)
 
-print(f"warm_ttft={ttft_mean:.3f}s tps={tps:.1f} tokens={n} total={total:.2f}s")
+
+def measure_warm_ttft():
+    """Run 3 short requests and return mean TTFT."""
+    ttfts = [stream_once(32)[0] for _ in range(3)]
+    valid = [t for t in ttfts if t is not None]
+    return sum(valid) / len(valid) if valid else 0.0
+
+
+def main():
+    """Run the full benchmark and print results."""
+    run_warmup()
+    ttft_mean = measure_warm_ttft()
+
+    ttft, n, total, first_delta, last_delta = stream_once(N_DECODE)
+    if last_delta and first_delta is not None:
+        dec = last_delta - first_delta
+    else:
+        dec = total - (ttft or 0)
+    tps = calc_tps(n, dec)
+
+    print(f"warm_ttft={ttft_mean:.3f}s tps={tps:.1f} tokens={n} total={total:.2f}s")
+
+
+if __name__ == "__main__":
+    main()
