@@ -7,8 +7,8 @@ Usage:
     python3 bench_stream.py <URL> <MODEL> <API_KEY> [N_DECODE]
 
 Examples:
-    python3 bench_stream.py http://localhost:8000/v1/chat/completions qwen3.6-35b sk-555-omlx
-    python3 bench_stream.py http://localhost:8080/v1/chat/completions qwen3.6-35b sk-optiq-xxx 512
+    python3 bench_stream.py http://localhost:8000/v1/chat/completions qwen3.6-35b YOUR_API_KEY
+    python3 bench_stream.py http://localhost:8080/v1/chat/completions qwen3.6-35b YOUR_API_KEY 512
 
 Outputs:
     warm_ttft=<mean>s tps=<rate> tokens=<count> total=<time>s
