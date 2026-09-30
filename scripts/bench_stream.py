@@ -13,16 +13,23 @@ Examples:
 Outputs:
     warm_ttft=<mean>s tps=<rate> tokens=<count> total=<time>s
 """
+import argparse
 import json
 import random
-import sys
 import time
 import urllib.request
 
-URL = sys.argv[1]
-MODEL = sys.argv[2]
-API_KEY = sys.argv[3]
-N_DECODE = int(sys.argv[4]) if len(sys.argv) > 4 else 400
+parser = argparse.ArgumentParser(description="Benchmark TTFT and sustained decode throughput.")
+parser.add_argument("url", help="API endpoint URL")
+parser.add_argument("model", help="Model name")
+parser.add_argument("api_key", help="API key")
+parser.add_argument("n_decode", type=int, default=400, help="Number of tokens to decode (default: 400)")
+args = parser.parse_args()
+
+URL = args.url
+MODEL = args.model
+API_KEY = args.api_key
+N_DECODE = args.n_decode
 
 # Pool of prompts — no reuse, forces cold prefill every time
 PROMPTS = [

@@ -16,16 +16,23 @@ Outputs:
 IMPORTANT: Uses a FRESH prompt each cold run to defeat prefix caches.
 A cache hit shows ttft ~0.4s and pp inflated to 20k+ tok/s — that's NOT real prefill.
 """
+import argparse
 import json
 import random
-import sys
 import time
 import urllib.request
 
-URL = sys.argv[1]
-MODEL = sys.argv[2]
-API_KEY = sys.argv[3]
-CTX = int(sys.argv[4])
+parser = argparse.ArgumentParser(description="Benchmark prefill and generation throughput.")
+parser.add_argument("url", help="API endpoint URL")
+parser.add_argument("model", help="Model name")
+parser.add_argument("api_key", help="API key")
+parser.add_argument("ctx", type=int, help="Target context length in tokens")
+args = parser.parse_args()
+
+URL = args.url
+MODEL = args.model
+API_KEY = args.api_key
+CTX = args.ctx
 
 
 def build_prompt(ctx_tokens):
