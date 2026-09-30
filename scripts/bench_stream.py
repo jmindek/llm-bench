@@ -19,17 +19,15 @@ import random
 import time
 import urllib.request
 
-parser = argparse.ArgumentParser(description="Benchmark TTFT and sustained decode throughput.")
-parser.add_argument("url", help="API endpoint URL")
-parser.add_argument("model", help="Model name")
-parser.add_argument("api_key", help="API key")
-parser.add_argument("n_decode", type=int, default=400, help="Number of tokens to decode (default: 400)")
-args = parser.parse_args()
-
-URL = args.url
-MODEL = args.model
-API_KEY = args.api_key
-N_DECODE = args.n_decode
+def parse_args(argv=None):
+    """Parse command-line arguments. Returns (URL, MODEL, API_KEY, N_DECODE)."""
+    parser = argparse.ArgumentParser(description="Benchmark TTFT and sustained decode throughput.")
+    parser.add_argument("url", help="API endpoint URL")
+    parser.add_argument("model", help="Model name")
+    parser.add_argument("api_key", help="API key")
+    parser.add_argument("n_decode", type=int, default=400, help="Number of tokens to decode (default: 400)")
+    args = parser.parse_args(argv)
+    return args.url, args.model, args.api_key, args.n_decode
 
 # Pool of prompts — no reuse, forces cold prefill every time
 PROMPTS = [
@@ -44,9 +42,17 @@ PROMPTS = [
 ]
 
 
+_last_prompt = None
+
+
 def random_prompt():
     """Pick a prompt, ensuring no two adjacent calls return the same one."""
-    return random.choice(PROMPTS)
+    global _last_prompt
+    if len(PROMPTS) == 1:
+        return PROMPTS[0]
+    choices = [p for p in PROMPTS if p != _last_prompt]
+    _last_prompt = random.choice(choices)
+    return _last_prompt
 
 
 def count_tokens(text):
@@ -132,13 +138,17 @@ def run_warmup():
 
 def measure_warm_ttft():
     """Run 3 short requests and return mean TTFT."""
-    ttfts = [stream_once(32)[0] for _ in range(3)]
-    valid = [t for t in ttfts if t is not None]
-    return sum(valid) / len(valid) if valid else 0.0
+    ttfts = []
+    for _ in range(3):
+        t, _, _, _, _ = stream_once(32)
+        if t is not None:
+            ttfts.append(t)
+    return sum(ttfts) / len(ttfts) if ttfts else 0.0
 
 
 def main():
     """Run the full benchmark and print results."""
+    URL, MODEL, API_KEY, N_DECODE = parse_args()
     run_warmup()
     ttft_mean = measure_warm_ttft()
 

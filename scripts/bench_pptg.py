@@ -22,17 +22,15 @@ import random
 import time
 import urllib.request
 
-parser = argparse.ArgumentParser(description="Benchmark prefill and generation throughput.")
-parser.add_argument("url", help="API endpoint URL")
-parser.add_argument("model", help="Model name")
-parser.add_argument("api_key", help="API key")
-parser.add_argument("ctx", type=int, help="Target context length in tokens")
-args = parser.parse_args()
-
-URL = args.url
-MODEL = args.model
-API_KEY = args.api_key
-CTX = args.ctx
+def parse_args(argv=None):
+    """Parse command-line arguments. Returns (URL, MODEL, API_KEY, CTX)."""
+    parser = argparse.ArgumentParser(description="Benchmark prefill and generation throughput.")
+    parser.add_argument("url", help="API endpoint URL")
+    parser.add_argument("model", help="Model name")
+    parser.add_argument("api_key", help="API key")
+    parser.add_argument("ctx", type=int, help="Target context length in tokens")
+    args = parser.parse_args(argv)
+    return args.url, args.model, args.api_key, args.ctx
 
 
 def build_prompt(ctx_tokens):
@@ -133,6 +131,7 @@ def calc_rates(ttft, pt, ct, first_delta, last_delta, total):
 
 def main():
     """Run the benchmark and print results."""
+    URL, MODEL, API_KEY, CTX = parse_args()
     prompt = build_prompt(CTX)
     ttft, pt, ct, total, first_delta, last_delta = stream_once(prompt, 400)
     pp, tg, dec = calc_rates(ttft, pt, ct, first_delta, last_delta, total)
