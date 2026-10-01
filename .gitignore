@@ -31,3 +31,6 @@ outputs/
 # Environment variables
 .env
 .env.local
+
+# Benchmark data (contains real API keys and metrics)
+benchmarks.csv
