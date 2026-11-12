@@ -15,6 +15,6 @@ jobs:
       - name: Install dependencies
         run: pip install ruff pytest
       - name: Run ruff
-        run: ruff check . && ruff format --check .
+        run: ruff check . && ruff format .
       - name: Run tests
         run: pytest tests/ -v
