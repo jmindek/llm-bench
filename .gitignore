@@ -24,6 +24,10 @@ htmlcov/
 .pytest_cache/
 *.cover
 
+# Vim swap/backup files
+#*.swp
+#*~
+
 # Output / artifacts
 results/
 outputs/
