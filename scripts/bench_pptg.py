@@ -18,10 +18,12 @@ A cache hit shows ttft ~0.4s and pp inflated to 20k+ tok/s — that's NOT real p
 """
 
 import argparse
-import json
 import random
+import sys
 import time
-import urllib.request
+
+sys.path.insert(0, "scripts")
+import common
 
 
 def parse_args(argv=None):
@@ -42,80 +44,70 @@ def build_prompt(ctx_tokens):
     return f"Here is a long context: {filler}{suffix}"
 
 
-def count_tokens(text):
-    """Rough token count: ~4 chars per token (gpt-4 style)."""
-    return max(1, len(text) // 4)
-
-
-def build_request_body(model, prompt):
-    """Build the JSON request body for a streaming request."""
-    return json.dumps(
-        {
-            "model": model,
-            "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": 400,
-            "temperature": 0,
-            "stream": True,
-            "stream_options": {"include_usage": True},
-        }
-    ).encode()
-
-
-def build_headers(api_key):
-    """Build request headers with optional auth."""
-    headers = {"Content-Type": "application/json"}
-    if api_key:
-        headers["Authorization"] = f"Bearer {api_key}"
-    return headers
-
-
 def stream_once(prompt, max_tokens, url, model, api_key):
-    """Stream a single request. Returns (ttft, prompt_tokens, completion_tokens,
+    """Stream a single request with prompt. Returns (ttft, prompt_tokens, completion_tokens,
     total_time, first_delta, last_delta)."""
-    req = urllib.request.Request(url, data=build_request_body(model, prompt), headers=build_headers(api_key))
-    start = time.perf_counter()
-    pt_usage = 0
-    ct_usage = 0
-    ct_delta = 0
-    first_delta = None
-    last_delta = None
+    last_error = None
+    for attempt in range(1, common.RETRY_COUNT + 1):
+        try:
+            req = common.build_request_body(model, prompt, max_tokens)
+            req = common.build_headers(api_key)
+            import urllib.request
 
-    with urllib.request.urlopen(req, timeout=900) as resp:
-        for raw in resp:
-            line = raw.decode("utf-8", "replace").strip()
-            if not line.startswith("data:"):
-                continue
-            p = line[5:].strip()
-            if p == "[DONE]":
-                break
-            try:
-                c = json.loads(p)
-            except json.JSONDecodeError:
-                continue
+            req = urllib.request.Request(url, data=req, headers=req)
+            start = time.perf_counter()
+            pt_usage = 0
+            ct_usage = 0
+            ct_delta = 0
+            first_delta = None
+            last_delta = None
 
-            u = c.get("usage")
-            if u:
-                if u.get("prompt_tokens"):
-                    pt_usage = u["prompt_tokens"]
-                if u.get("completion_tokens"):
-                    ct_usage = u["completion_tokens"]
+            with urllib.request.urlopen(req, timeout=common.DEFAULT_TIMEOUT) as resp:
+                for raw in resp:
+                    line = raw.decode("utf-8", "replace").strip()
+                    if not line.startswith("data:"):
+                        continue
+                    p = line[5:].strip()
+                    if p == "[DONE]":
+                        break
+                    try:
+                        import json
 
-            ch = c.get("choices") or []
-            if ch:
-                d = ch[0].get("delta") or {}
-                t = d.get("content") or d.get("reasoning_content") or d.get("reasoning") or ""
-                if t:
-                    ct_delta += count_tokens(t)
-                    now = time.perf_counter()
-                    if first_delta is None:
-                        first_delta = now
-                    last_delta = now
+                        c = json.loads(p)
+                    except (json.JSONDecodeError, ImportError):
+                        continue
 
-    ttft = first_delta - start if first_delta else None
-    total = time.perf_counter() - start
-    ct = ct_usage if ct_usage > 0 else ct_delta
-    pt = pt_usage if pt_usage > 0 else count_tokens(prompt)
-    return ttft, pt, ct, total, first_delta, last_delta
+                    u = c.get("usage")
+                    if u:
+                        if u.get("prompt_tokens"):
+                            pt_usage = u["prompt_tokens"]
+                        if u.get("completion_tokens"):
+                            ct_usage = u["completion_tokens"]
+
+                    ch = c.get("choices") or []
+                    if ch:
+                        d = ch[0].get("delta") or {}
+                        t = d.get("content") or d.get("reasoning_content") or d.get("reasoning") or ""
+                        if t:
+                            ct_delta += common.count_tokens(t)
+                            now = time.perf_counter()
+                            if first_delta is None:
+                                first_delta = now
+                            last_delta = now
+
+            ttft = first_delta - start if first_delta else None
+            total = time.perf_counter() - start
+            ct = ct_usage if ct_usage > 0 else ct_delta
+            pt = pt_usage if pt_usage > 0 else common.count_tokens(prompt)
+            return ttft, pt, ct, total, first_delta, last_delta
+        except (common.urllib.error.HTTPError, common.urllib.error.URLError, ConnectionError, TimeoutError) as e:
+            last_error = e
+            if attempt < common.RETRY_COUNT:
+                wait = 2**attempt
+                print(f"retry {attempt} in {wait}s after: {e}", flush=True)
+                time.sleep(wait)
+
+    raise RuntimeError(f"request failed after {common.RETRY_COUNT} attempts: {last_error}")
 
 
 def calc_rates(ttft, pt, ct, first_delta, last_delta, total):
@@ -136,7 +128,7 @@ def main():
     """Run the benchmark and print results."""
     URL, MODEL, API_KEY, CTX = parse_args()
     prompt = build_prompt(CTX)
-    ttft, pt, ct, total, first_delta, last_delta = stream_once(prompt, 400, URL, MODEL, API_KEY)
+    ttft, pt, ct, total, first_delta, last_delta = stream_once(prompt, common.MAX_TOKENS, URL, MODEL, API_KEY)
     pp, tg, _dec = calc_rates(ttft, pt, ct, first_delta, last_delta, total)
 
     print(f"pp={pp:.0f} tok/s tg={tg:.0f} tok/s prompt_tokens={pt} completion_tokens={ct} total={total:.2f}s")
