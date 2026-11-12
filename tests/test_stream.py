@@ -1,19 +1,17 @@
 """Integration tests for streaming functions with mocked HTTP."""
 import json
 import sys
-from unittest.mock import patch, MagicMock
-
-import pytest
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, "scripts")
 
-import bench_stream
 import bench_pptg
+import bench_stream
 
 
 def make_streaming_lines(tokens=400, usage=True):
     lines = []
-    for i in range(tokens):
+    for _i in range(tokens):
         payload = json.dumps({"choices": [{"delta": {"content": "x"}}]})
         lines.append(f"data: {payload}\n")
     if usage:
@@ -25,7 +23,7 @@ def make_streaming_lines(tokens=400, usage=True):
 
 def make_pptg_streaming_lines(prompt_tokens=1000, completion_tokens=5):
     lines = []
-    for i in range(completion_tokens):
+    for _i in range(completion_tokens):
         payload = json.dumps({"choices": [{"delta": {"content": "w"}}]})
         lines.append(f"data: {payload}\n")
     payload = json.dumps({"usage": {"prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens}})
@@ -93,7 +91,7 @@ def test_pptg_stream_once(mock_urlopen, mock_request):
 @patch("bench_pptg.urllib.request.urlopen")
 def test_pptg_stream_once_no_usage(mock_urlopen, mock_request):
     lines = []
-    for i in range(5):
+    for _i in range(5):
         payload = json.dumps({"choices": [{"delta": {"content": "w"}}]})
         lines.append(f"data: {payload}\n")
     lines.append("data: [DONE]\n")
