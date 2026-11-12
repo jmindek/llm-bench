@@ -18,12 +18,14 @@ A cache hit shows ttft ~0.4s and pp inflated to 20k+ tok/s — that's NOT real p
 """
 
 import argparse
+import json
 import random
 import sys
 import time
 
 sys.path.insert(0, "scripts")
 import common
+import requests
 
 
 def parse_args(argv=None):
@@ -50,11 +52,8 @@ def stream_once(prompt, max_tokens, url, model, api_key):
     last_error = None
     for attempt in range(1, common.RETRY_COUNT + 1):
         try:
-            req = common.build_request_body(model, prompt, max_tokens)
-            req = common.build_headers(api_key)
-            import urllib.request
-
-            req = urllib.request.Request(url, data=req, headers=req)
+            body = common.build_request_body(model, prompt, max_tokens)
+            headers = common.build_headers(api_key)
             start = time.perf_counter()
             pt_usage = 0
             ct_usage = 0
@@ -62,8 +61,8 @@ def stream_once(prompt, max_tokens, url, model, api_key):
             first_delta = None
             last_delta = None
 
-            with urllib.request.urlopen(req, timeout=common.DEFAULT_TIMEOUT) as resp:
-                for raw in resp:
+            with requests.post(url, data=json.dumps(body), headers=headers, stream=True, timeout=common.DEFAULT_TIMEOUT) as resp:
+                for raw in resp.iter_lines():
                     line = raw.decode("utf-8", "replace").strip()
                     if not line.startswith("data:"):
                         continue
@@ -71,10 +70,8 @@ def stream_once(prompt, max_tokens, url, model, api_key):
                     if p == "[DONE]":
                         break
                     try:
-                        import json
-
                         c = json.loads(p)
-                    except (json.JSONDecodeError, ImportError):
+                    except json.JSONDecodeError:
                         continue
 
                     u = c.get("usage")
@@ -100,7 +97,7 @@ def stream_once(prompt, max_tokens, url, model, api_key):
             ct = ct_usage if ct_usage > 0 else ct_delta
             pt = pt_usage if pt_usage > 0 else common.count_tokens(prompt)
             return ttft, pt, ct, total, first_delta, last_delta
-        except (common.urllib.error.HTTPError, common.urllib.error.URLError, ConnectionError, TimeoutError) as e:
+        except requests.exceptions.RequestException as e:
             last_error = e
             if attempt < common.RETRY_COUNT:
                 wait = 2**attempt

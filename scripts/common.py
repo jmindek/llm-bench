@@ -2,8 +2,7 @@
 
 import json
 import time
-import urllib.error
-import urllib.request
+import requests
 
 # Magic numbers extracted to named constants
 DEFAULT_TIMEOUT = 900
@@ -22,16 +21,14 @@ def count_tokens(text):
 
 def build_request_body(model, prompt, max_tokens=MAX_TOKENS):
     """Build the JSON request body for a streaming request."""
-    return json.dumps(
-        {
-            "model": model,
-            "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": max_tokens,
-            "temperature": 0,
-            "stream": True,
-            "stream_options": {"include_usage": True},
-        }
-    ).encode()
+    return {
+        "model": model,
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens,
+        "temperature": 0,
+        "stream": True,
+        "stream_options": {"include_usage": True},
+    }
 
 
 def build_headers(api_key):
@@ -53,17 +50,14 @@ def stream_once(max_tokens, url, model, api_key, prompt=None):
         try:
             if prompt is None:
                 prompt = random_prompt()
-            req = urllib.request.Request(
-                url, data=build_request_body(model, prompt, max_tokens), headers=build_headers(api_key)
-            )
             start = time.perf_counter()
             ct_usage = 0
             ct_delta = 0
             first_delta = None
             last_delta = None
 
-            with urllib.request.urlopen(req, timeout=DEFAULT_TIMEOUT) as resp:
-                for raw in resp:
+            with requests.post(url, data=json.dumps(build_request_body(model, prompt, max_tokens)), headers=build_headers(api_key), stream=True, timeout=DEFAULT_TIMEOUT) as resp:
+                for raw in resp.iter_lines():
                     line = raw.decode("utf-8", "replace").strip()
                     if not line.startswith("data:"):
                         continue
@@ -94,7 +88,7 @@ def stream_once(max_tokens, url, model, api_key, prompt=None):
             total = time.perf_counter() - start
             ct = ct_usage if ct_usage > 0 else ct_delta
             return ttft, ct, total, first_delta, last_delta
-        except (urllib.error.HTTPError, urllib.error.URLError, ConnectionError, TimeoutError) as e:
+        except (requests.exceptions.RequestException) as e:
             last_error = e
             if attempt < RETRY_COUNT:
                 wait = 2**attempt
