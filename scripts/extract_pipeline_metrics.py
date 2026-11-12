@@ -161,7 +161,9 @@ def spend_rows(start_iso, end_iso, pg_argv, pg_env):
         '"prompt_tokens", "completion_tokens" FROM "LiteLLM_SpendLogs" '
         f'WHERE "startTime" >= \'{start_iso}\' AND "startTime" <= \'{end_iso}\' ORDER BY "startTime"'
     )
-    r = subprocess.run(pg_argv + ["--no-align", "--tuples-only", "-c", sql], check=False, capture_output=True, text=True, env=pg_env)
+    r = subprocess.run(
+        pg_argv + ["--no-align", "--tuples-only", "-c", sql], check=False, capture_output=True, text=True, env=pg_env
+    )
     if r.returncode != 0:
         print(f"WARNING: psql query failed: {r.stderr.strip()}", file=sys.stderr)
         return []

@@ -1,4 +1,5 @@
 """Integration tests for streaming functions with mocked HTTP."""
+
 import json
 import sys
 from unittest.mock import MagicMock, patch
