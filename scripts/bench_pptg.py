@@ -16,11 +16,13 @@ Outputs:
 IMPORTANT: Uses a FRESH prompt each cold run to defeat prefix caches.
 A cache hit shows ttft ~0.4s and pp inflated to 20k+ tok/s — that's NOT real prefill.
 """
+
 import argparse
 import json
 import random
 import time
 import urllib.request
+
 
 def parse_args(argv=None):
     """Parse command-line arguments. Returns (URL, MODEL, API_KEY, CTX)."""
@@ -47,14 +49,16 @@ def count_tokens(text):
 
 def build_request_body(model, prompt):
     """Build the JSON request body for a streaming request."""
-    return json.dumps({
-        "model": model,
-        "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": 400,
-        "temperature": 0,
-        "stream": True,
-        "stream_options": {"include_usage": True},
-    }).encode()
+    return json.dumps(
+        {
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": True,
+            "stream_options": {"include_usage": True},
+        }
+    ).encode()
 
 
 def build_headers(api_key):
@@ -99,8 +103,7 @@ def stream_once(prompt, max_tokens, url, model, api_key):
             ch = c.get("choices") or []
             if ch:
                 d = ch[0].get("delta") or {}
-                t = (d.get("content") or d.get("reasoning_content")
-                     or d.get("reasoning") or "")
+                t = d.get("content") or d.get("reasoning_content") or d.get("reasoning") or ""
                 if t:
                     ct_delta += count_tokens(t)
                     now = time.perf_counter()
@@ -111,13 +114,13 @@ def stream_once(prompt, max_tokens, url, model, api_key):
     ttft = first_delta - start if first_delta else None
     total = time.perf_counter() - start
     ct = ct_usage if ct_usage > 0 else ct_delta
-    pt = pt_usage if pt_usage > 0 else CTX
+    pt = pt_usage if pt_usage > 0 else count_tokens(prompt)
     return ttft, pt, ct, total, first_delta, last_delta
 
 
 def calc_rates(ttft, pt, ct, first_delta, last_delta, total):
     """Calculate prefill and generation throughput rates.
-    
+
     Returns (pp, tg, decode_time).
     """
     pp = pt / ttft if ttft and ttft > 0 else 0.0
@@ -134,7 +137,7 @@ def main():
     URL, MODEL, API_KEY, CTX = parse_args()
     prompt = build_prompt(CTX)
     ttft, pt, ct, total, first_delta, last_delta = stream_once(prompt, 400, URL, MODEL, API_KEY)
-    pp, tg, dec = calc_rates(ttft, pt, ct, first_delta, last_delta, total)
+    pp, tg, _dec = calc_rates(ttft, pt, ct, first_delta, last_delta, total)
 
     print(f"pp={pp:.0f} tok/s tg={tg:.0f} tok/s prompt_tokens={pt} completion_tokens={ct} total={total:.2f}s")
 

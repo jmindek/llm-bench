@@ -19,12 +19,14 @@ Usage:
       [--subagent-dir SESSIONS_DIR] [--out benchmarks.csv] [--run-id bench-NNN] \
       [--archive-dir ~/Documents/coding/benchmarks/runs] [--device "..."]
 """
+
 import argparse
 import csv
 import datetime as dt
 import glob
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -58,42 +60,45 @@ def load_env(env_path=None):
     """Parse KEY=VALUE lines from .env -> dict; expands ${KEY} refs. { } if missing."""
     env = {}
     try:
-        for line in open(env_path):
-            line = line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            k, v = line.split("=", 1)
-            env[k.strip()] = v.strip().strip('"').strip("'")
+        with open(env_path) as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, v = line.split("=", 1)
+                env[k.strip()] = v.strip().strip('"').strip("'")
     except OSError:
         pass
     return expand_env_refs(env)
 
 
 def pg_connect(env):
-    """Build psql argv + env from .env values (fallback: defaults for litellm stack)."""
+    """Build psql argv + env from .env values. Fails if credentials are missing."""
     psql = shutil.which("psql")
     if not psql:
         print("ERROR: psql not found in PATH. Install postgres client.", file=sys.stderr)
         sys.exit(1)
-    env_vals = {
-        "user": env.get("POSTGRES_USER", "litellm_user"),
-        "password": env.get("POSTGRES_PASSWORD", "secure_password_change_me"),
-        "db": env.get("POSTGRES_DB", "litellm_db"),
-        "port": "5433",  # local docker-exposed port; .env DATABASE_URL points at the internal docker network
-    }
+    user = env.get("POSTGRES_USER")
+    password = env.get("POSTGRES_PASSWORD")
+    db = env.get("POSTGRES_DB")
+    port = env.get("DATABASE_PORT", "5433")
+    if not all([user, password, db]):
+        missing = [k for k in ("POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DB") if k not in env]
+        print(f"ERROR: Missing .env keys: {', '.join(missing)}", file=sys.stderr)
+        sys.exit(1)
     if "DATABASE_URL" in env and "@" in env["DATABASE_URL"]:
         # postgresql://user:pass@host:port/db
         auth, rest = env["DATABASE_URL"].split("://", 1)[1].split("@", 1)
         if ":" in auth:
-            env_vals["user"], env_vals["password"] = auth.split(":", 1)
+            user, password = auth.split(":", 1)
         host, _, db_port = rest.rpartition("/")
-        env_vals["db"] = db_port
+        db = db_port
         if ":" in host:
             candidate = host.rsplit(":", 1)[-1]
             if candidate != "5432":  # 5432 = docker-internal, not locally reachable
-                env_vals["port"] = candidate
-    argv = [psql, "-h", "127.0.0.1", "-p", env_vals["port"], "-U", env_vals["user"], "-d", env_vals["db"]]
-    pgenv = {"PGPASSWORD": env_vals["password"], "PATH": os.environ.get("PATH", "")}
+                port = candidate
+    argv = [psql, "-h", "127.0.0.1", "-p", port, "-U", user, "-d", db]
+    pgenv = {"PGPASSWORD": password, "PATH": os.environ.get("PATH", "")}
     return argv, pgenv
 
 
@@ -106,23 +111,26 @@ def read_transcripts(sessions_dir, start_epoch, end_epoch, agents=None):
         with open(f) as fh:
             first = fh.readline()
         try:
-            first_ts = json.loads(first).get("timestamp", "")
-        except Exception:
+            _ = json.loads(first).get("timestamp", "")
+        except (json.JSONDecodeError, KeyError):
             continue
         name = os.path.basename(f).split("_", 1)[1].rsplit("_", 1)[0]
-        for line in open(f):
-            line = line.strip()
-            if not line:
-                continue
-            e = json.loads(line)
-            m = e.get("message", {})
-            if not isinstance(m, dict) or not m.get("usage"):
-                continue
-            u = m["usage"]
-            t = m.get("timestamp")
-            if t is not None and not (start_epoch <= t / 1000 <= end_epoch):
-                continue
-            per_agent.setdefault(name, []).append({**u, "model": m.get("model", ""), "responseId": m.get("responseId", "")})
+        with open(f) as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                e = json.loads(line)
+                m = e.get("message", {})
+                if not isinstance(m, dict) or not m.get("usage"):
+                    continue
+                u = m["usage"]
+                t = m.get("timestamp")
+                if t is not None and not (start_epoch <= t / 1000 <= end_epoch):
+                    continue
+                per_agent.setdefault(name, []).append(
+                    {**u, "model": m.get("model", ""), "responseId": m.get("responseId", "")}
+                )
     return per_agent
 
 
@@ -136,26 +144,45 @@ def sum_usage(usages):
 
 
 def agent_models_of(records):
-    models = {r["model"] for r in records if isinstance(r, dict) and r.get("model")}
-    return next(iter(models), "") if models else ""
+    """Return sorted list of unique models used by an agent."""
+    models = sorted({r["model"] for r in records if isinstance(r, dict) and r.get("model")})
+    return models if models else []
 
 
 def spend_rows(start_iso, end_iso, pg_argv, pg_env):
+    # Validate ISO datetime strings to prevent SQL injection
+    iso_re = r"^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}"
+    if not (re.match(iso_re, start_iso) and re.match(iso_re, end_iso)):
+        print(f"WARNING: Invalid time range ({start_iso}, {end_iso}), skipping spend query", file=sys.stderr)
+        return []
     sql = (
         'SELECT "request_id", "model", extract(epoch from "startTime")::float, '
         'extract(epoch from "completionStartTime")::float, "request_duration_ms", '
         '"prompt_tokens", "completion_tokens" FROM "LiteLLM_SpendLogs" '
-        f"WHERE \"startTime\" >= '{start_iso}' AND \"startTime\" <= '{end_iso}' ORDER BY \"startTime\""
+        f'WHERE "startTime" >= \'{start_iso}\' AND "startTime" <= \'{end_iso}\' ORDER BY "startTime"'
     )
-    r = subprocess.run(pg_argv + ["-t", "-c", sql], capture_output=True, text=True, env=pg_env)
+    r = subprocess.run(
+        pg_argv + ["--no-align", "--tuples-only", "-c", sql], check=False, capture_output=True, text=True, env=pg_env
+    )
+    if r.returncode != 0:
+        print(f"WARNING: psql query failed: {r.stderr.strip()}", file=sys.stderr)
+        return []
     rows = []
     for line in r.stdout.splitlines():
         p = [x.strip() for x in line.split("|")]
         if len(p) != 7:
             continue
-        rows.append({"rid": p[0], "model": p[1], "start": float(p[2]),
-                     "cstart": float(p[3]) if p[3] != "" else None,
-                     "dur": int(p[4]), "pt": int(p[5]), "ct": int(p[6])})
+        rows.append(
+            {
+                "rid": p[0],
+                "model": p[1],
+                "start": float(p[2]),
+                "cstart": float(p[3]) if p[3] != "" else None,
+                "dur": int(p[4]),
+                "pt": int(p[5]),
+                "ct": int(p[6]),
+            }
+        )
     return rows
 
 
@@ -164,14 +191,19 @@ def ttft_metrics(rows, ids):
     valid = [r for r in rows if r["rid"] in ids and r["cstart"] and r["cstart"] > r["start"]]
     if not valid:
         return {"ttft_s": "", "ptps": "", "gtps": ""}
-    sum_ttft = sum(r["cstart"] - r["start"] for r in valid)
     prefill_s = sum(r["cstart"] - r["start"] for r in valid)
-    gen_s = sum((r["dur"] / 1000 - (r["cstart"] - r["start"])) for r in valid
-                if (r["dur"] / 1000 - (r["cstart"] - r["start"])) > 0)
+    gen_s = sum(
+        (r["dur"] / 1000 - (r["cstart"] - r["start"]))
+        for r in valid
+        if (r["dur"] / 1000 - (r["cstart"] - r["start"])) > 0
+    )
     ptps = (sum(r["pt"] for r in valid) / prefill_s) if prefill_s else ""
     gtps = (sum(r["ct"] for r in valid) / gen_s) if gen_s else ""
-    return {"ttft_s": round(sum_ttft, 3), "ptps": round(ptps, 1) if ptps != "" else "",
-            "gtps": round(gtps, 2) if gtps != "" else ""}
+    return {
+        "ttft_s": round(prefill_s, 3),
+        "ptps": round(ptps, 1) if ptps != "" else "",
+        "gtps": round(gtps, 2) if gtps != "" else "",
+    }
 
 
 def next_run_id(csv_path="~/Documents/coding/benchmarks.csv"):
@@ -184,13 +216,13 @@ def next_run_id(csv_path="~/Documents/coding/benchmarks.csv"):
             ids = [r.get("run_id") for r in csv.DictReader(fh) if r.get("run_id")]
         nums = [int(i.replace("bench-", "")) for i in ids if i.startswith("bench-")]
         return f"bench-{max(nums) + 1:03d}" if nums else "bench-001"
-    except Exception:
+    except (OSError, subprocess.SubprocessError):
         return "bench-001"
 
 
 def git_sha(cwd):
     try:
-        r = subprocess.run(["git", "rev-parse", "HEAD"], cwd=cwd, capture_output=True, text=True)
+        r = subprocess.run(["git", "rev-parse", "HEAD"], check=False, cwd=cwd, capture_output=True, text=True)
         return r.stdout.strip()[:12] if r.returncode == 0 else ""
     except OSError:
         return ""
@@ -201,17 +233,22 @@ def main():
     ap.add_argument("orch_session", help="path to orchestrator session.jsonl")
     ap.add_argument("--start", required=True, help="run start, ISO or 'YYYY-MM-DD HH:MM:SS' UTC")
     ap.add_argument("--end", required=True, help="run end")
-    ap.add_argument("--subagent-dir", default=None,
-                    help="sessions dir containing subagent-artifacts/ (default: dirname(orch_session))")
+    ap.add_argument(
+        "--subagent-dir",
+        default=None,
+        help="sessions dir containing subagent-artifacts/ (default: dirname(orch_session))",
+    )
     ap.add_argument("--out", default=None, help="CSV path; row upserted by run_id (creates header if missing)")
     ap.add_argument("--run-id", default=None, help="run_id (default: auto from --out)")
     ap.add_argument("--device", default="MacBook Pro Apple M4 Max")
     ap.add_argument("--archive-dir", default=DEFAULT_ARCHIVE, help="parent dir for per-run archives")
     ap.add_argument("--no-archive", action="store_true", help="skip writing per-run archive dir")
-    ap.add_argument("--agents", default=None,
-                    help="comma-separated agent names (default: py-senior-dev,py-lead,py-staff-dev,py-architect)")
-    ap.add_argument("--env", default=DEFAULT_ENV,
-                    help="path to .env file with DB credentials")
+    ap.add_argument(
+        "--agents",
+        default=None,
+        help="comma-separated agent names (default: py-senior-dev,py-lead,py-staff-dev,py-architect)",
+    )
+    ap.add_argument("--env", default=DEFAULT_ENV, help="path to .env file with DB credentials")
     args = ap.parse_args()
     if not args.run_id:
         args.run_id = next_run_id(args.out) if args.out else "bench-NEXT"
@@ -219,13 +256,16 @@ def main():
     def parse(s):
         s = s.strip()
         if s.endswith("Z"):
-            return dt.datetime.fromisoformat(s.replace("Z", "+00:00"))
+            return dt.datetime.fromisoformat(s)
         try:
-            return dt.datetime.strptime(s, "%Y-%m-%d %H:%M:%S").replace(tzinfo=dt.timezone.utc)
+            return dt.datetime.strptime(s, "%Y-%m-%d %H:%M:%S").replace(tzinfo=dt.UTC)
         except ValueError:
-            return dt.datetime.fromisoformat(s).replace(tzinfo=dt.timezone.utc)
+            return dt.datetime.fromisoformat(s).replace(tzinfo=dt.UTC)
 
     start_dt, end_dt = parse(args.start), parse(args.end)
+    if start_dt > end_dt:
+        print(f"ERROR: start ({args.start}) is after end ({args.end})", file=sys.stderr)
+        sys.exit(1)
     start_epoch, end_epoch = start_dt.timestamp(), end_dt.timestamp()
     sub_dir = args.subagent_dir or os.path.dirname(args.orch_session)
 
@@ -236,20 +276,21 @@ def main():
     orch_usage = {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "reasoning": 0, "totalTokens": 0}
     orch_ids = set()
     orch_model = ""
-    for line in open(args.orch_session):
-        e = json.loads(line)
-        m = e.get("message", {})
-        if not isinstance(m, dict) or not m.get("usage") or not m.get("timestamp"):
-            continue
-        t = m["timestamp"] / 1000
-        if not (start_epoch <= t <= end_epoch):
-            continue
-        u = m["usage"]
-        orch_model = m.get("model") or orch_model
-        if m.get("responseId"):
-            orch_ids.add(m["responseId"])
-        for k in orch_usage:
-            orch_usage[k] += u.get(k) or 0
+    with open(args.orch_session) as f:
+        for line in f:
+            e = json.loads(line)
+            m = e.get("message", {})
+            if not isinstance(m, dict) or not m.get("usage") or not m.get("timestamp"):
+                continue
+            t = m["timestamp"] / 1000
+            if not (start_epoch <= t <= end_epoch):
+                continue
+            u = m["usage"]
+            orch_model = m.get("model") or orch_model
+            if m.get("responseId"):
+                orch_ids.add(m["responseId"])
+            for k in orch_usage:
+                orch_usage[k] += u.get(k) or 0
 
     # --- subagents ---
     agents = args.agents.split(",") if args.agents else DEFAULT_AGENTS
@@ -276,10 +317,10 @@ def main():
         "duration": round(end_epoch - start_epoch, 1),
         "schema_version": SCHEMA_VERSION,
     }
-    agent_ttft_all = {**{"orchestrator": orch_ttft}, **agent_ttft}
+    agent_ttft_all = {"orchestrator": orch_ttft, **agent_ttft}
     token_cols = ("input", "output", "cacheRead", "cacheWrite", "reasoning", "totalTokens")
     for a in ["orchestrator"] + agents:
-        row[f"{a}_model"] = orch_model if a == "orchestrator" else agent_models[a]
+        row[f"{a}_model"] = orch_model if a == "orchestrator" else ";".join(agent_models[a])
         totals = orch_usage if a == "orchestrator" else agent_totals[a]
         for col in token_cols:
             row[f"{a}_{col}"] = totals[col]
@@ -300,15 +341,17 @@ def main():
         run_dir = os.path.join(os.path.expanduser(args.archive_dir), args.run_id)
         os.makedirs(run_dir, exist_ok=True)
         with open(os.path.join(run_dir, f"{args.run_id}.spend.jsonl"), "w") as fh:
-            for sd in spend:
-                fh.write(json.dumps(sd) + "\n")
+            fh.writelines(json.dumps(sd) + "\n" for sd in spend)
         manifest = {
             "run_id": args.run_id,
             "schema_version": SCHEMA_VERSION,
             "start_time": row["start_time"],
             "end_time": row["end_time"],
             "orch_session": os.path.basename(args.orch_session),
-            "subagent_artifacts": sorted(os.path.basename(f) for f in glob.glob(os.path.join(sub_dir, "subagent-artifacts", "*_transcript.jsonl"))),
+            "subagent_artifacts": sorted(
+                os.path.basename(f)
+                for f in glob.glob(os.path.join(sub_dir, "subagent-artifacts", "*_transcript.jsonl"))
+            ),
             "spend_rows": len(spend),
             "git_sha": git_sha(os.getcwd()),
             "script": os.path.basename(sys.argv[0]),
