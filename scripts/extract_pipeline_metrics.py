@@ -60,12 +60,13 @@ def load_env(env_path=None):
     """Parse KEY=VALUE lines from .env -> dict; expands ${KEY} refs. { } if missing."""
     env = {}
     try:
-        for line in open(env_path):
-            line = line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            k, v = line.split("=", 1)
-            env[k.strip()] = v.strip().strip('"').strip("'")
+        with open(env_path) as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, v = line.split("=", 1)
+                env[k.strip()] = v.strip().strip('"').strip("'")
     except OSError:
         pass
     return expand_env_refs(env)
@@ -111,24 +112,25 @@ def read_transcripts(sessions_dir, start_epoch, end_epoch, agents=None):
             first = fh.readline()
         try:
             _ = json.loads(first).get("timestamp", "")
-        except Exception:
+        except (json.JSONDecodeError, KeyError):
             continue
         name = os.path.basename(f).split("_", 1)[1].rsplit("_", 1)[0]
-        for line in open(f):
-            line = line.strip()
-            if not line:
-                continue
-            e = json.loads(line)
-            m = e.get("message", {})
-            if not isinstance(m, dict) or not m.get("usage"):
-                continue
-            u = m["usage"]
-            t = m.get("timestamp")
-            if t is not None and not (start_epoch <= t / 1000 <= end_epoch):
-                continue
-            per_agent.setdefault(name, []).append(
-                {**u, "model": m.get("model", ""), "responseId": m.get("responseId", "")}
-            )
+        with open(f) as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                e = json.loads(line)
+                m = e.get("message", {})
+                if not isinstance(m, dict) or not m.get("usage"):
+                    continue
+                u = m["usage"]
+                t = m.get("timestamp")
+                if t is not None and not (start_epoch <= t / 1000 <= end_epoch):
+                    continue
+                per_agent.setdefault(name, []).append(
+                    {**u, "model": m.get("model", ""), "responseId": m.get("responseId", "")}
+                )
     return per_agent
 
 
@@ -159,7 +161,7 @@ def spend_rows(start_iso, end_iso, pg_argv, pg_env):
         '"prompt_tokens", "completion_tokens" FROM "LiteLLM_SpendLogs" '
         f'WHERE "startTime" >= \'{start_iso}\' AND "startTime" <= \'{end_iso}\' ORDER BY "startTime"'
     )
-    r = subprocess.run(pg_argv + ["--no-align", "--tuples-only", "-c", sql], capture_output=True, text=True, env=pg_env)
+    r = subprocess.run(pg_argv + ["--no-align", "--tuples-only", "-c", sql], check=False, capture_output=True, text=True, env=pg_env)
     if r.returncode != 0:
         print(f"WARNING: psql query failed: {r.stderr.strip()}", file=sys.stderr)
         return []
@@ -212,13 +214,13 @@ def next_run_id(csv_path="~/Documents/coding/benchmarks.csv"):
             ids = [r.get("run_id") for r in csv.DictReader(fh) if r.get("run_id")]
         nums = [int(i.replace("bench-", "")) for i in ids if i.startswith("bench-")]
         return f"bench-{max(nums) + 1:03d}" if nums else "bench-001"
-    except Exception:
+    except (OSError, subprocess.SubprocessError):
         return "bench-001"
 
 
 def git_sha(cwd):
     try:
-        r = subprocess.run(["git", "rev-parse", "HEAD"], cwd=cwd, capture_output=True, text=True)
+        r = subprocess.run(["git", "rev-parse", "HEAD"], check=False, cwd=cwd, capture_output=True, text=True)
         return r.stdout.strip()[:12] if r.returncode == 0 else ""
     except OSError:
         return ""
@@ -252,7 +254,7 @@ def main():
     def parse(s):
         s = s.strip()
         if s.endswith("Z"):
-            return dt.datetime.fromisoformat(s.replace("Z", "+00:00"))
+            return dt.datetime.fromisoformat(s)
         try:
             return dt.datetime.strptime(s, "%Y-%m-%d %H:%M:%S").replace(tzinfo=dt.UTC)
         except ValueError:
@@ -272,20 +274,21 @@ def main():
     orch_usage = {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "reasoning": 0, "totalTokens": 0}
     orch_ids = set()
     orch_model = ""
-    for line in open(args.orch_session):
-        e = json.loads(line)
-        m = e.get("message", {})
-        if not isinstance(m, dict) or not m.get("usage") or not m.get("timestamp"):
-            continue
-        t = m["timestamp"] / 1000
-        if not (start_epoch <= t <= end_epoch):
-            continue
-        u = m["usage"]
-        orch_model = m.get("model") or orch_model
-        if m.get("responseId"):
-            orch_ids.add(m["responseId"])
-        for k in orch_usage:
-            orch_usage[k] += u.get(k) or 0
+    with open(args.orch_session) as f:
+        for line in f:
+            e = json.loads(line)
+            m = e.get("message", {})
+            if not isinstance(m, dict) or not m.get("usage") or not m.get("timestamp"):
+                continue
+            t = m["timestamp"] / 1000
+            if not (start_epoch <= t <= end_epoch):
+                continue
+            u = m["usage"]
+            orch_model = m.get("model") or orch_model
+            if m.get("responseId"):
+                orch_ids.add(m["responseId"])
+            for k in orch_usage:
+                orch_usage[k] += u.get(k) or 0
 
     # --- subagents ---
     agents = args.agents.split(",") if args.agents else DEFAULT_AGENTS
@@ -312,7 +315,7 @@ def main():
         "duration": round(end_epoch - start_epoch, 1),
         "schema_version": SCHEMA_VERSION,
     }
-    agent_ttft_all = {**{"orchestrator": orch_ttft}, **agent_ttft}
+    agent_ttft_all = {"orchestrator": orch_ttft, **agent_ttft}
     token_cols = ("input", "output", "cacheRead", "cacheWrite", "reasoning", "totalTokens")
     for a in ["orchestrator"] + agents:
         row[f"{a}_model"] = orch_model if a == "orchestrator" else ";".join(agent_models[a])
@@ -336,8 +339,7 @@ def main():
         run_dir = os.path.join(os.path.expanduser(args.archive_dir), args.run_id)
         os.makedirs(run_dir, exist_ok=True)
         with open(os.path.join(run_dir, f"{args.run_id}.spend.jsonl"), "w") as fh:
-            for sd in spend:
-                fh.write(json.dumps(sd) + "\n")
+            fh.writelines(json.dumps(sd) + "\n" for sd in spend)
         manifest = {
             "run_id": args.run_id,
             "schema_version": SCHEMA_VERSION,

@@ -46,7 +46,7 @@ def test_stream_once(mock_urlopen, mock_request):
     lines = make_streaming_lines(10)
     mock_urlopen.return_value = mock_response(lines)
 
-    ttft, ct, total, first, last = bench_stream.stream_once(10, "http://localhost", "test", "key")
+    ttft, ct, _total, _first, _last = bench_stream.stream_once(10, "http://localhost", "test", "key")
     assert ttft is not None
     assert ct == 10
 
@@ -57,7 +57,7 @@ def test_stream_once_no_usage(mock_urlopen, mock_request):
     lines = make_streaming_lines(10, usage=False)
     mock_urlopen.return_value = mock_response(lines)
 
-    ttft, ct, total, first, last = bench_stream.stream_once(10, "http://localhost", "test", "key")
+    _ttft, ct, _total, _first, _last = bench_stream.stream_once(10, "http://localhost", "test", "key")
     assert ct == 10
 
 
@@ -71,7 +71,7 @@ def test_stream_once_json_decode_error(mock_urlopen, mock_request):
     ]
     mock_urlopen.return_value = mock_response(lines)
 
-    ttft, ct, total, first, last = bench_stream.stream_once(1, "http://localhost", "test", "key")
+    _ttft, ct, _total, _first, _last = bench_stream.stream_once(1, "http://localhost", "test", "key")
     assert ct == 1
 
 
@@ -81,7 +81,7 @@ def test_pptg_stream_once(mock_urlopen, mock_request):
     lines = make_pptg_streaming_lines(1000, 5)
     mock_urlopen.return_value = mock_response(lines)
 
-    ttft, pt, ct, total, first, last = bench_pptg.stream_once("test", 5, "http://localhost", "test", "key")
+    ttft, pt, ct, _total, _first, _last = bench_pptg.stream_once("test", 5, "http://localhost", "test", "key")
     assert ttft is not None
     assert pt == 1000
     assert ct == 5
@@ -97,6 +97,6 @@ def test_pptg_stream_once_no_usage(mock_urlopen, mock_request):
     lines.append("data: [DONE]\n")
     mock_urlopen.return_value = mock_response(lines)
 
-    ttft, pt, ct, total, first, last = bench_pptg.stream_once("test", 5, "http://localhost", "test", "key")
+    _ttft, pt, ct, _total, _first, _last = bench_pptg.stream_once("test", 5, "http://localhost", "test", "key")
     assert pt == 1
     assert ct == 5

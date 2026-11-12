@@ -137,7 +137,7 @@ def main():
     URL, MODEL, API_KEY, CTX = parse_args()
     prompt = build_prompt(CTX)
     ttft, pt, ct, total, first_delta, last_delta = stream_once(prompt, 400, URL, MODEL, API_KEY)
-    pp, tg, dec = calc_rates(ttft, pt, ct, first_delta, last_delta, total)
+    pp, tg, _dec = calc_rates(ttft, pt, ct, first_delta, last_delta, total)
 
     print(f"pp={pp:.0f} tok/s tg={tg:.0f} tok/s prompt_tokens={pt} completion_tokens={ct} total={total:.2f}s")
 
