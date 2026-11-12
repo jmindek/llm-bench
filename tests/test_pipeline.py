@@ -1,10 +1,7 @@
 """Tests for pipeline metrics extraction."""
 
 import csv
-import json
-import os
 import sys
-from unittest.mock import MagicMock, patch
 
 import pytest
 

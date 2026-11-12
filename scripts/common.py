@@ -2,6 +2,7 @@
 
 import json
 import time
+
 import requests
 
 # Magic numbers extracted to named constants
