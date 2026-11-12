@@ -16,5 +16,16 @@ jobs:
         run: pip install ruff pytest
       - name: Run ruff
         run: ruff check . && ruff format .
+      - name: Install gitleaks
+        run: |
+          cd /tmp
+          curl -LO https://github.com/gitleaks/gitleaks/releases/latest/download/gitleaks_linux_amd64.tar.gz
+          tar -xzf gitleaks_linux_amd64.tar.gz
+          sudo mv gitleaks /usr/local/bin/
+          rm gitleaks_linux_amd64.tar.gz
+
+      - name: Scan for secrets
+        run: gitleaks detect --source . --verbose --exit-code 1
+
       - name: Run tests
         run: pytest tests/ -v
