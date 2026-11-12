@@ -19,6 +19,7 @@ Usage:
       [--subagent-dir SESSIONS_DIR] [--out benchmarks.csv] [--run-id bench-NNN] \
       [--archive-dir ~/Documents/coding/benchmarks/runs] [--device "..."]
 """
+
 import argparse
 import csv
 import datetime as dt
@@ -109,7 +110,7 @@ def read_transcripts(sessions_dir, start_epoch, end_epoch, agents=None):
         with open(f) as fh:
             first = fh.readline()
         try:
-            first_ts = json.loads(first).get("timestamp", "")
+            _ = json.loads(first).get("timestamp", "")
         except Exception:
             continue
         name = os.path.basename(f).split("_", 1)[1].rsplit("_", 1)[0]
@@ -125,7 +126,9 @@ def read_transcripts(sessions_dir, start_epoch, end_epoch, agents=None):
             t = m.get("timestamp")
             if t is not None and not (start_epoch <= t / 1000 <= end_epoch):
                 continue
-            per_agent.setdefault(name, []).append({**u, "model": m.get("model", ""), "responseId": m.get("responseId", "")})
+            per_agent.setdefault(name, []).append(
+                {**u, "model": m.get("model", ""), "responseId": m.get("responseId", "")}
+            )
     return per_agent
 
 
@@ -146,7 +149,7 @@ def agent_models_of(records):
 
 def spend_rows(start_iso, end_iso, pg_argv, pg_env):
     # Validate ISO datetime strings to prevent SQL injection
-    iso_re = r'^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}'
+    iso_re = r"^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}"
     if not (re.match(iso_re, start_iso) and re.match(iso_re, end_iso)):
         print(f"WARNING: Invalid time range ({start_iso}, {end_iso}), skipping spend query", file=sys.stderr)
         return []
@@ -154,10 +157,9 @@ def spend_rows(start_iso, end_iso, pg_argv, pg_env):
         'SELECT "request_id", "model", extract(epoch from "startTime")::float, '
         'extract(epoch from "completionStartTime")::float, "request_duration_ms", '
         '"prompt_tokens", "completion_tokens" FROM "LiteLLM_SpendLogs" '
-        f"WHERE \"startTime\" >= '{start_iso}' AND \"startTime\" <= '{end_iso}' ORDER BY \"startTime\""
+        f'WHERE "startTime" >= \'{start_iso}\' AND "startTime" <= \'{end_iso}\' ORDER BY "startTime"'
     )
-    r = subprocess.run(pg_argv + ["--no-align", "--tuples-only", "-c", sql],
-                       capture_output=True, text=True, env=pg_env)
+    r = subprocess.run(pg_argv + ["--no-align", "--tuples-only", "-c", sql], capture_output=True, text=True, env=pg_env)
     if r.returncode != 0:
         print(f"WARNING: psql query failed: {r.stderr.strip()}", file=sys.stderr)
         return []
@@ -166,9 +168,17 @@ def spend_rows(start_iso, end_iso, pg_argv, pg_env):
         p = [x.strip() for x in line.split("|")]
         if len(p) != 7:
             continue
-        rows.append({"rid": p[0], "model": p[1], "start": float(p[2]),
-                     "cstart": float(p[3]) if p[3] != "" else None,
-                     "dur": int(p[4]), "pt": int(p[5]), "ct": int(p[6])})
+        rows.append(
+            {
+                "rid": p[0],
+                "model": p[1],
+                "start": float(p[2]),
+                "cstart": float(p[3]) if p[3] != "" else None,
+                "dur": int(p[4]),
+                "pt": int(p[5]),
+                "ct": int(p[6]),
+            }
+        )
     return rows
 
 
@@ -178,12 +188,18 @@ def ttft_metrics(rows, ids):
     if not valid:
         return {"ttft_s": "", "ptps": "", "gtps": ""}
     prefill_s = sum(r["cstart"] - r["start"] for r in valid)
-    gen_s = sum((r["dur"] / 1000 - (r["cstart"] - r["start"])) for r in valid
-                if (r["dur"] / 1000 - (r["cstart"] - r["start"])) > 0)
+    gen_s = sum(
+        (r["dur"] / 1000 - (r["cstart"] - r["start"]))
+        for r in valid
+        if (r["dur"] / 1000 - (r["cstart"] - r["start"])) > 0
+    )
     ptps = (sum(r["pt"] for r in valid) / prefill_s) if prefill_s else ""
     gtps = (sum(r["ct"] for r in valid) / gen_s) if gen_s else ""
-    return {"ttft_s": round(prefill_s, 3), "ptps": round(ptps, 1) if ptps != "" else "",
-            "gtps": round(gtps, 2) if gtps != "" else ""}
+    return {
+        "ttft_s": round(prefill_s, 3),
+        "ptps": round(ptps, 1) if ptps != "" else "",
+        "gtps": round(gtps, 2) if gtps != "" else "",
+    }
 
 
 def next_run_id(csv_path="~/Documents/coding/benchmarks.csv"):
@@ -213,17 +229,22 @@ def main():
     ap.add_argument("orch_session", help="path to orchestrator session.jsonl")
     ap.add_argument("--start", required=True, help="run start, ISO or 'YYYY-MM-DD HH:MM:SS' UTC")
     ap.add_argument("--end", required=True, help="run end")
-    ap.add_argument("--subagent-dir", default=None,
-                    help="sessions dir containing subagent-artifacts/ (default: dirname(orch_session))")
+    ap.add_argument(
+        "--subagent-dir",
+        default=None,
+        help="sessions dir containing subagent-artifacts/ (default: dirname(orch_session))",
+    )
     ap.add_argument("--out", default=None, help="CSV path; row upserted by run_id (creates header if missing)")
     ap.add_argument("--run-id", default=None, help="run_id (default: auto from --out)")
     ap.add_argument("--device", default="MacBook Pro Apple M4 Max")
     ap.add_argument("--archive-dir", default=DEFAULT_ARCHIVE, help="parent dir for per-run archives")
     ap.add_argument("--no-archive", action="store_true", help="skip writing per-run archive dir")
-    ap.add_argument("--agents", default=None,
-                    help="comma-separated agent names (default: py-senior-dev,py-lead,py-staff-dev,py-architect)")
-    ap.add_argument("--env", default=DEFAULT_ENV,
-                    help="path to .env file with DB credentials")
+    ap.add_argument(
+        "--agents",
+        default=None,
+        help="comma-separated agent names (default: py-senior-dev,py-lead,py-staff-dev,py-architect)",
+    )
+    ap.add_argument("--env", default=DEFAULT_ENV, help="path to .env file with DB credentials")
     args = ap.parse_args()
     if not args.run_id:
         args.run_id = next_run_id(args.out) if args.out else "bench-NEXT"
@@ -233,9 +254,9 @@ def main():
         if s.endswith("Z"):
             return dt.datetime.fromisoformat(s.replace("Z", "+00:00"))
         try:
-            return dt.datetime.strptime(s, "%Y-%m-%d %H:%M:%S").replace(tzinfo=dt.timezone.utc)
+            return dt.datetime.strptime(s, "%Y-%m-%d %H:%M:%S").replace(tzinfo=dt.UTC)
         except ValueError:
-            return dt.datetime.fromisoformat(s).replace(tzinfo=dt.timezone.utc)
+            return dt.datetime.fromisoformat(s).replace(tzinfo=dt.UTC)
 
     start_dt, end_dt = parse(args.start), parse(args.end)
     if start_dt > end_dt:
@@ -323,7 +344,10 @@ def main():
             "start_time": row["start_time"],
             "end_time": row["end_time"],
             "orch_session": os.path.basename(args.orch_session),
-            "subagent_artifacts": sorted(os.path.basename(f) for f in glob.glob(os.path.join(sub_dir, "subagent-artifacts", "*_transcript.jsonl"))),
+            "subagent_artifacts": sorted(
+                os.path.basename(f)
+                for f in glob.glob(os.path.join(sub_dir, "subagent-artifacts", "*_transcript.jsonl"))
+            ),
             "spend_rows": len(spend),
             "git_sha": git_sha(os.getcwd()),
             "script": os.path.basename(sys.argv[0]),

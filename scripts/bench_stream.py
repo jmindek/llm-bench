@@ -13,11 +13,13 @@ Examples:
 Outputs:
     warm_ttft=<mean>s tps=<rate> tokens=<count> total=<time>s
 """
+
 import argparse
 import json
 import random
 import time
 import urllib.request
+
 
 def parse_args(argv=None):
     """Parse command-line arguments. Returns (URL, MODEL, API_KEY, N_DECODE)."""
@@ -28,6 +30,7 @@ def parse_args(argv=None):
     parser.add_argument("n_decode", type=int, default=400, help="Number of tokens to decode (default: 400)")
     args = parser.parse_args(argv)
     return args.url, args.model, args.api_key, args.n_decode
+
 
 # Pool of prompts — no reuse, forces cold prefill every time
 PROMPTS = [
@@ -62,14 +65,16 @@ def count_tokens(text):
 
 def build_request_body(model, prompt):
     """Build the JSON request body for a streaming request."""
-    return json.dumps({
-        "model": model,
-        "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": 400,
-        "temperature": 0,
-        "stream": True,
-        "stream_options": {"include_usage": True},
-    }).encode()
+    return json.dumps(
+        {
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": 400,
+            "temperature": 0,
+            "stream": True,
+            "stream_options": {"include_usage": True},
+        }
+    ).encode()
 
 
 def build_headers(api_key):
@@ -110,8 +115,7 @@ def stream_once(max_tokens, url, model, api_key):
             ch = c.get("choices") or []
             if ch:
                 d = ch[0].get("delta") or {}
-                t = (d.get("content") or d.get("reasoning_content")
-                     or d.get("reasoning") or "")
+                t = d.get("content") or d.get("reasoning_content") or d.get("reasoning") or ""
                 if t:
                     ct_delta += count_tokens(t)
                     now = time.perf_counter()

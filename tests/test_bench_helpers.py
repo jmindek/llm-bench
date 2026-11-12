@@ -1,17 +1,12 @@
 """Unit tests for bench_stream and bench_pptg helper functions."""
-import json
-import sys
-import textwrap
-from unittest.mock import patch, mock_open
 
-import pytest
+import sys
 
 # Import module-level constants and functions by loading the scripts as modules
 sys.path.insert(0, "scripts")
 
-import bench_stream
 import bench_pptg
-
+import bench_stream
 
 # ── bench_stream tests ──────────────────────────────────────────────────────
 
@@ -49,10 +44,12 @@ class TestCalcTps:
 
     def test_zero_decode(self):
         import math
+
         assert math.isnan(bench_stream.calc_tps(400, 0))
 
     def test_negative_decode(self):
         import math
+
         assert math.isnan(bench_stream.calc_tps(400, -1.0))
 
 
@@ -85,33 +82,21 @@ class TestCountTokensPptg:
 
 class TestCalcRates:
     def test_normal(self):
-        pp, tg, dec = bench_pptg.calc_rates(
-            ttft=1.0, pt=1000, ct=100,
-            first_delta=1.0, last_delta=2.0, total=3.0
-        )
+        pp, tg, dec = bench_pptg.calc_rates(ttft=1.0, pt=1000, ct=100, first_delta=1.0, last_delta=2.0, total=3.0)
         assert pp == 1000.0
         assert tg == 100.0
         assert dec == 1.0
 
     def test_no_delta_times(self):
-        pp, tg, dec = bench_pptg.calc_rates(
-            ttft=1.0, pt=1000, ct=100,
-            first_delta=None, last_delta=None, total=3.0
-        )
+        pp, tg, dec = bench_pptg.calc_rates(ttft=1.0, pt=1000, ct=100, first_delta=None, last_delta=None, total=3.0)
         assert pp == 1000.0
         assert tg == 50.0  # 100 / (3.0 - 1.0)
         assert dec == 2.0
 
     def test_zero_decode(self):
-        pp, tg, dec = bench_pptg.calc_rates(
-            ttft=1.0, pt=1000, ct=100,
-            first_delta=1.0, last_delta=1.0, total=2.0
-        )
+        pp, tg, dec = bench_pptg.calc_rates(ttft=1.0, pt=1000, ct=100, first_delta=1.0, last_delta=1.0, total=2.0)
         assert tg == 0.0
 
     def test_no_ttft(self):
-        pp, tg, dec = bench_pptg.calc_rates(
-            ttft=None, pt=1000, ct=100,
-            first_delta=None, last_delta=None, total=3.0
-        )
+        pp, tg, dec = bench_pptg.calc_rates(ttft=None, pt=1000, ct=100, first_delta=None, last_delta=None, total=3.0)
         assert pp == 0.0
