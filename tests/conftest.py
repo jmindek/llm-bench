@@ -1,6 +1,5 @@
 """Shared test fixtures."""
 
-import json
 from unittest.mock import MagicMock
 
 

@@ -1,7 +1,7 @@
 """Tests for streaming edge cases and error handling."""
 
 import sys
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 import requests
@@ -10,6 +10,7 @@ sys.path.insert(0, "scripts")
 
 import bench_pptg
 import common
+
 from tests.conftest import mock_response_factory
 
 
