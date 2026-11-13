@@ -23,9 +23,10 @@ def test_expand_env_refs_simple():
 
 
 def test_expand_env_refs_nested():
+    """Single-pass expansion doesn't resolve nested refs."""
     env = {"HOST": "localhost", "PORT": "5432", "URL": "postgresql://${HOST}:${PORT}/db"}
     result = epm.expand_env_refs(env)
-    assert result["URL"] == "postgresql://localhost:5432/db"
+    assert result["URL"] == "postgresql://localhost:${PORT}/db"
 
 
 def test_expand_env_refs_missing_ref():

@@ -53,6 +53,7 @@ def stream_once(max_tokens, url, model, api_key, prompt=None):
             if prompt is None:
                 prompt = random_prompt()
             start = time.perf_counter()
+            pt_usage = 0
             ct_usage = 0
             ct_delta = 0
             first_delta = None
@@ -72,8 +73,11 @@ def stream_once(max_tokens, url, model, api_key, prompt=None):
                         continue
 
                     u = c.get("usage")
-                    if u and u.get("completion_tokens"):
-                        ct_usage = u["completion_tokens"]
+                    if u:
+                        if u.get("prompt_tokens"):
+                            pt_usage = u["prompt_tokens"]
+                        if u.get("completion_tokens"):
+                            ct_usage = u["completion_tokens"]
 
                     ch = c.get("choices") or []
                     if ch:
@@ -89,7 +93,8 @@ def stream_once(max_tokens, url, model, api_key, prompt=None):
             ttft = first_delta - start if first_delta else None
             total = time.perf_counter() - start
             ct = ct_usage if ct_usage > 0 else ct_delta
-            return ttft, ct, total, first_delta, last_delta
+            pt = pt_usage if pt_usage > 0 else count_tokens(prompt)
+            return ttft, pt, ct, total, first_delta, last_delta
         except (requests.exceptions.RequestException) as e:
             last_error = e
             if attempt < RETRY_COUNT:

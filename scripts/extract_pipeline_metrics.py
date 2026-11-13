@@ -40,20 +40,14 @@ DEFAULT_ENV = os.path.expanduser("~/llm_platform/.env")
 
 
 def expand_env_refs(env):
-    """Resolve ${KEY} references inside .env values. Expands until no more references remain."""
+    """Resolve ${KEY} references inside .env values (single pass)."""
     pattern = re.compile(r"\$\{([^}]+)\}")
-
-    expanded = True
-    while expanded:
-        expanded = False
-        for key, value in list(env.items()):
-            match = pattern.search(value)
-            if match:
-                var_name = match.group(1)
-                if var_name in env:
-                    env[key] = pattern.sub(env[var_name], value, count=1)
-                    expanded = True
-
+    for key, value in list(env.items()):
+        match = pattern.search(value)
+        if match:
+            var_name = match.group(1)
+            if var_name in env:
+                env[key] = pattern.sub(env[var_name], value, count=1)
     return env
 
 

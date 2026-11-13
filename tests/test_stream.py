@@ -8,7 +8,6 @@ import pytest
 
 sys.path.insert(0, "scripts")
 
-import bench_pptg
 import common
 
 
@@ -87,7 +86,7 @@ def mock_response_factory():
 @patch("common.requests.post")
 def test_stream_once(mock_post, stream_lines, mock_response_factory):
     mock_post.return_value = mock_response_factory(stream_lines)
-    ttft, ct, _total, _first, _last = common.stream_once(10, "http://localhost", "test", "key")
+    ttft, _pt, ct, _total, _first, _last = common.stream_once(10, "http://localhost", "test", "key")
     assert ttft is not None
     assert ct == 10
 
@@ -95,29 +94,29 @@ def test_stream_once(mock_post, stream_lines, mock_response_factory):
 @patch("common.requests.post")
 def test_stream_once_no_usage(mock_post, stream_lines_no_usage, mock_response_factory):
     mock_post.return_value = mock_response_factory(stream_lines_no_usage)
-    _ttft, ct, _total, _first, _last = common.stream_once(10, "http://localhost", "test", "key")
+    _ttft, _pt, ct, _total, _first, _last = common.stream_once(10, "http://localhost", "test", "key")
     assert ct == 10
 
 
 @patch("common.requests.post")
 def test_stream_once_json_decode_error(mock_post, stream_lines_bad_json, mock_response_factory):
     mock_post.return_value = mock_response_factory(stream_lines_bad_json)
-    _ttft, ct, _total, _first, _last = common.stream_once(1, "http://localhost", "test", "key")
+    _ttft, _pt, ct, _total, _first, _last = common.stream_once(1, "http://localhost", "test", "key")
     assert ct == 1
 
 
-@patch("bench_pptg.requests.post")
+@patch("common.requests.post")
 def test_pptg_stream_once(mock_post, pptg_stream_lines, mock_response_factory):
     mock_post.return_value = mock_response_factory(pptg_stream_lines)
-    ttft, pt, ct, _total, _first, _last = bench_pptg.stream_once("test", 5, "http://localhost", "test", "key")
+    ttft, pt, ct, _total, _first, _last = common.stream_once(5, "http://localhost", "test", "key", "test")
     assert ttft is not None
     assert pt == 1000
     assert ct == 5
 
 
-@patch("bench_pptg.requests.post")
+@patch("common.requests.post")
 def test_pptg_stream_once_no_usage(mock_post, pptg_stream_lines_no_usage, mock_response_factory):
     mock_post.return_value = mock_response_factory(pptg_stream_lines_no_usage)
-    _ttft, pt, ct, _total, _first, _last = bench_pptg.stream_once("test", 5, "http://localhost", "test", "key")
+    _ttft, pt, ct, _total, _first, _last = common.stream_once(5, "http://localhost", "test", "key", "test")
     assert pt == 1
     assert ct == 5
