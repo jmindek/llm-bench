@@ -23,6 +23,8 @@ coverage/
 htmlcov/
 .pytest_cache/
 *.cover
+.coverage
+bandit-results.json
 
 # Vim swap/backup files
 #*.swp

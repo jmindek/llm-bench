@@ -48,7 +48,7 @@ def measure_warm_ttft(url, model, api_key):
     """Run 3 short requests and return mean TTFT."""
     ttfts = []
     for _ in range(common.TTFT_MEASURE_REQUESTS):
-        t, _, _, _, _ = common.stream_once(common.TTFT_MEASURE_TOKENS, url, model, api_key)
+        t, _, _, _, _, _ = common.stream_once(common.TTFT_MEASURE_TOKENS, url, model, api_key)
         if t is not None:
             ttfts.append(t)
     return sum(ttfts) / len(ttfts) if ttfts else 0.0
@@ -60,7 +60,7 @@ def main():
     run_warmup(URL, MODEL, API_KEY)
     ttft_mean = measure_warm_ttft(URL, MODEL, API_KEY)
 
-    ttft, n, total, first_delta, last_delta = common.stream_once(N_DECODE, URL, MODEL, API_KEY)
+    ttft, _, n, total, first_delta, last_delta = common.stream_once(N_DECODE, URL, MODEL, API_KEY)
     if last_delta and first_delta is not None:
         dec = last_delta - first_delta
     else:
