@@ -1,6 +1,7 @@
 """Tests for streaming edge cases and error handling."""
 
 import sys
+from unittest import mock
 from unittest.mock import patch
 
 import pytest
@@ -10,7 +11,16 @@ sys.path.insert(0, "scripts")
 
 import common
 
-from tests.conftest import mock_response_factory
+
+def mock_response_factory():
+    """Factory for mock HTTP responses."""
+    def make(lines):
+        resp = mock.MagicMock()
+        resp.__enter__ = mock.MagicMock(return_value=resp)
+        resp.__exit__ = mock.MagicMock(return_value=None)
+        resp.iter_lines = mock.MagicMock(return_value=iter([x.encode("utf-8") for x in lines]))
+        return resp
+    return make
 
 
 @patch("common.requests.post")
