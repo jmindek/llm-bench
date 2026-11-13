@@ -31,6 +31,8 @@ import shutil
 import subprocess
 import sys
 
+import psycopg2
+
 DEFAULT_AGENTS = ["py-senior-dev", "py-lead", "py-staff-dev", "py-architect"]
 SCHEMA_VERSION = "1"
 DEFAULT_ARCHIVE = os.path.expanduser("~/Documents/coding/benchmarks/runs")
@@ -73,15 +75,12 @@ def load_env(env_path=None):
 
 
 def pg_connect(env):
-    """Build psql argv + env from .env values. Fails if credentials are missing."""
-    psql = shutil.which("psql")
-    if not psql:
-        print("ERROR: psql not found in PATH. Install postgres client.", file=sys.stderr)
-        sys.exit(1)
+    """Create psycopg2 connection from .env values. Fails if credentials are missing."""
     user = env.get("POSTGRES_USER")
     password = env.get("POSTGRES_PASSWORD")
     db = env.get("POSTGRES_DB")
     port = env.get("DATABASE_PORT", "5433")
+    host = "127.0.0.1"
     if not all([user, password, db]):
         missing = [k for k in ("POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DB") if k not in env]
         print(f"ERROR: Missing .env keys: {', '.join(missing)}", file=sys.stderr)
@@ -91,15 +90,23 @@ def pg_connect(env):
         auth, rest = env["DATABASE_URL"].split("://", 1)[1].split("@", 1)
         if ":" in auth:
             user, password = auth.split(":", 1)
-        host, _, db_port = rest.rpartition("/")
-        db = db_port
+        host, _, db = rest.rpartition("/")
         if ":" in host:
             candidate = host.rsplit(":", 1)[-1]
             if candidate != "5432":  # 5432 = docker-internal, not locally reachable
                 port = candidate
-    argv = [psql, "-h", "127.0.0.1", "-p", port, "-U", user, "-d", db]
-    pgenv = {"PGPASSWORD": password, "PATH": os.environ.get("PATH", "")}
-    return argv, pgenv
+    try:
+        conn = psycopg2.connect(
+            host=host,
+            port=port,
+            user=user,
+            password=password,
+            dbname=db,
+        )
+        return conn
+    except psycopg2.Error as e:
+        print(f"ERROR: Failed to connect to database: {e}", file=sys.stderr)
+        sys.exit(1)
 
 
 def read_transcripts(sessions_dir, start_epoch, end_epoch, agents=None):
@@ -149,8 +156,8 @@ def agent_models_of(records):
     return models if models else []
 
 
-def spend_rows(start_iso, end_iso, pg_argv, pg_env):
-    # Validate ISO datetime strings to prevent SQL injection
+def spend_rows(start_iso, end_iso, conn):
+    """Query spend data from LiteLLM_SpendLogs table. Returns list of row dicts."""
     iso_re = r"^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}"
     if not (re.match(iso_re, start_iso) and re.match(iso_re, end_iso)):
         print(f"WARNING: Invalid time range ({start_iso}, {end_iso}), skipping spend query", file=sys.stderr)
@@ -159,31 +166,29 @@ def spend_rows(start_iso, end_iso, pg_argv, pg_env):
         'SELECT "request_id", "model", extract(epoch from "startTime")::float, '
         'extract(epoch from "completionStartTime")::float, "request_duration_ms", '
         '"prompt_tokens", "completion_tokens" FROM "LiteLLM_SpendLogs" '
-        f'WHERE "startTime" >= \'{start_iso}\' AND "startTime" <= \'{end_iso}\' ORDER BY "startTime"'
+        'WHERE "startTime" >= %s AND "startTime" <= %s ORDER BY "startTime"'
     )
-    r = subprocess.run(
-        pg_argv + ["--no-align", "--tuples-only", "-c", sql], check=False, capture_output=True, text=True, env=pg_env
-    )
-    if r.returncode != 0:
-        print(f"WARNING: psql query failed: {r.stderr.strip()}", file=sys.stderr)
+    try:
+        with conn.cursor() as cur:
+            cur.execute(sql, (start_iso, end_iso))
+            rows = cur.fetchall()
+        result = []
+        for row in rows:
+            result.append(
+                {
+                    "rid": row[0],
+                    "model": row[1],
+                    "start": float(row[2]),
+                    "cstart": float(row[3]) if row[3] is not None else None,
+                    "dur": int(row[4]),
+                    "pt": int(row[5]),
+                    "ct": int(row[6]),
+                }
+            )
+        return result
+    except psycopg2.Error as e:
+        print(f"WARNING: spend query failed: {e}", file=sys.stderr)
         return []
-    rows = []
-    for line in r.stdout.splitlines():
-        p = [x.strip() for x in line.split("|")]
-        if len(p) != 7:
-            continue
-        rows.append(
-            {
-                "rid": p[0],
-                "model": p[1],
-                "start": float(p[2]),
-                "cstart": float(p[3]) if p[3] != "" else None,
-                "dur": int(p[4]),
-                "pt": int(p[5]),
-                "ct": int(p[6]),
-            }
-        )
-    return rows
 
 
 def ttft_metrics(rows, ids):
@@ -270,7 +275,7 @@ def main():
     sub_dir = args.subagent_dir or os.path.dirname(args.orch_session)
 
     env = load_env(args.env)
-    pg_argv, pg_env = pg_connect(env)
+    conn = pg_connect(env)
 
     # --- orchestrator (main session): token usage in window ---
     orch_usage = {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "reasoning": 0, "totalTokens": 0}
@@ -299,7 +304,7 @@ def main():
     agent_models = {a: agent_models_of(per_agent[a]) for a in agents}
 
     # --- TTFT from spend DB (orchestrator; subagents only if calls routed via proxy) ---
-    spend = spend_rows(args.start, args.end.replace(" ", "T"), pg_argv, pg_env)
+    spend = spend_rows(args.start, args.end.replace(" ", "T"), conn)
     orch_ttft = ttft_metrics(spend, orch_ids)
 
     agent_ttft = {a: {"ttft_s": "", "ptps": "", "gtps": ""} for a in agents}

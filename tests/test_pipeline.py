@@ -135,3 +135,9 @@ def test_next_run_id_existing(csv_file):
         writer.writerow({"run_id": "bench-003"})
     result = epm.next_run_id(str(csv_file))
     assert result == "bench-004"
+
+
+def test_pg_connect_raises_on_missing_credentials():
+    """pg_connect exits with error if credentials are missing."""
+    with pytest.raises(SystemExit):
+        epm.pg_connect({})
