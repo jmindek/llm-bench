@@ -1,6 +1,7 @@
 """Shared utilities for LLM benchmarking scripts."""
 
 import json
+import os
 import time
 
 import requests
@@ -100,7 +101,10 @@ def stream_once(max_tokens, url, model, api_key, prompt=None):
 
 
 # Pool of prompts — no reuse, forces cold prefill every time
-PROMPTS = [
+# Loaded from prompts.json, falls back to embedded defaults if missing
+PROMPTS_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "prompts.json")
+
+DEFAULT_PROMPTS = [
     "Write a detailed paragraph about why the sky is blue, covering Rayleigh scattering.",
     "Explain how photosynthesis works in plants, mentioning chloroplasts and light reactions.",
     "Describe the process of oceanic crust formation at mid-ocean ridges.",
@@ -110,6 +114,12 @@ PROMPTS = [
     "Explain the difference between supervised and unsupervised machine learning.",
     "Describe the structure and function of the human nervous system.",
 ]
+
+try:
+    with open(PROMPTS_PATH) as f:
+        PROMPTS = json.load(f)
+except (FileNotFoundError, json.JSONDecodeError):
+    PROMPTS = DEFAULT_PROMPTS
 
 _last_prompt = None
 
