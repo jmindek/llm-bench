@@ -79,8 +79,8 @@ def pg_connect(env):
     user = env.get("POSTGRES_USER")
     password = env.get("POSTGRES_PASSWORD")
     db = env.get("POSTGRES_DB")
+    host = env.get("DATABASE_HOST", "127.0.0.1")
     port = env.get("DATABASE_PORT", "5433")
-    host = "127.0.0.1"
     if not all([user, password, db]):
         missing = [k for k in ("POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DB") if k not in env]
         print(f"ERROR: Missing .env keys: {', '.join(missing)}", file=sys.stderr)
