@@ -40,21 +40,23 @@ DEFAULT_ENV = os.path.expanduser("~/llm_platform/.env")
 
 
 def expand_env_refs(env):
-    """Resolve ${KEY} references inside .env values (nested, one pass, 10 deep)."""
-    for _ in range(10):
-        changed = False
-        for k, v in list(env.items()):
-            if "${" in v:
-                nv = v
-                for ref in set(v.split("${")[1:]):
-                    key = ref.split("}", 1)[0]
-                    if key in env:
-                        nv = nv.replace("${" + key + "}", env[key])
-                if nv != v:
-                    env[k] = nv
-                    changed = True
-        if not changed:
-            break
+    """Resolve ${KEY} references inside .env values. Recursively expands up to 10 levels."""
+    pattern = re.compile(r"\$\{([^}]+)\}")
+
+    def resolve_value(value):
+        """Expand all variable references in a single value."""
+        for _ in range(10):
+            match = pattern.search(value)
+            if not match:
+                break
+            var_name = match.group(1)
+            if var_name not in env:
+                break
+            value = pattern.sub(env[var_name], value, count=1)
+        return value
+
+    for key, value in env.items():
+        env[key] = resolve_value(value)
     return env
 
 
