@@ -37,27 +37,23 @@ DEFAULT_AGENTS = ["py-senior-dev", "py-lead", "py-staff-dev", "py-architect"]
 SCHEMA_VERSION = "1"
 DEFAULT_ARCHIVE = os.path.expanduser("~/Documents/coding/benchmarks/runs")
 DEFAULT_ENV = os.path.expanduser("~/llm_platform/.env")
-MAX_ENV_EXPANSION_DEPTH = 10  # Maximum iterations to resolve nested variable references
 
 
 def expand_env_refs(env):
-    """Resolve ${KEY} references inside .env values. Recursively expands up to 10 levels."""
+    """Resolve ${KEY} references inside .env values. Expands until no more references remain."""
     pattern = re.compile(r"\$\{([^}]+)\}")
 
-    def resolve_value(value):
-        """Expand all variable references in a single value."""
-        for _ in range(MAX_ENV_EXPANSION_DEPTH):
+    expanded = True
+    while expanded:
+        expanded = False
+        for key, value in list(env.items()):
             match = pattern.search(value)
-            if not match:
-                break
-            var_name = match.group(1)
-            if var_name not in env:
-                break
-            value = pattern.sub(env[var_name], value, count=1)
-        return value
+            if match:
+                var_name = match.group(1)
+                if var_name in env:
+                    env[key] = pattern.sub(env[var_name], value, count=1)
+                    expanded = True
 
-    for key, value in env.items():
-        env[key] = resolve_value(value)
     return env
 
 
